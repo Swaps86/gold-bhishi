@@ -5,7 +5,10 @@ import android.content.Intent;
 import android.content.IntentSender;
 import android.content.SharedPreferences;
 import android.os.Bundle;
+import android.app.AlertDialog;
 import android.webkit.JavascriptInterface;
+import android.webkit.JsResult;
+import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
@@ -48,6 +51,29 @@ public class MainActivity extends Activity {
         s.setDomStorageEnabled(true);
 
         web.setWebViewClient(new WebViewClient());
+        // Without this, alert() and confirm() in the page do nothing on Android.
+        web.setWebChromeClient(new WebChromeClient() {
+            @Override
+            public boolean onJsAlert(WebView view, String url, String message, final JsResult result) {
+                new AlertDialog.Builder(MainActivity.this)
+                        .setMessage(message)
+                        .setPositiveButton("OK", (d, w) -> result.confirm())
+                        .setOnCancelListener(d -> result.cancel())
+                        .show();
+                return true;
+            }
+
+            @Override
+            public boolean onJsConfirm(WebView view, String url, String message, final JsResult result) {
+                new AlertDialog.Builder(MainActivity.this)
+                        .setMessage(message)
+                        .setPositiveButton("OK", (d, w) -> result.confirm())
+                        .setNegativeButton("Cancel", (d, w) -> result.cancel())
+                        .setOnCancelListener(d -> result.cancel())
+                        .show();
+                return true;
+            }
+        });
         web.addJavascriptInterface(new Bridge(), "Android");
         web.loadUrl("file:///android_asset/index.html");
     }
