@@ -6,6 +6,11 @@ import android.content.IntentSender;
 import android.content.SharedPreferences;
 import android.os.Bundle;
 import android.app.AlertDialog;
+import android.app.KeyguardManager;
+import android.content.Context;
+import android.print.PrintAttributes;
+import android.print.PrintDocumentAdapter;
+import android.print.PrintManager;
 import android.webkit.JavascriptInterface;
 import android.webkit.JsResult;
 import android.webkit.WebChromeClient;
@@ -28,17 +33,24 @@ import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.net.URLEncoder;
+import java.security.MessageDigest;
+import java.security.SecureRandom;
 import java.util.Arrays;
 
 public class MainActivity extends Activity {
 
     private static final int REQ_AUTH = 1001;
+    private static final int REQ_LOCK = 1002;
+    private static final long RELOCK_MS = 60000;
     private static final String DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.appdata";
     private static final String FILE_NAME = "gold-bhishi-data.json";
 
     private WebView web;
     private String pendingAction = "pull";
     private String pendingPush = "";
+    private boolean suppressLock = false;
+    private long pausedAt = 0;
+    private WebView printView;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -87,6 +99,36 @@ public class MainActivity extends Activity {
         });
     }
 
+    @Override
+    protected void onPause() {
+        super.onPause();
+        pausedAt = System.currentTimeMillis();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        // Coming back from Google sign-in, the phone-lock screen, the print dialog or the share sheet
+        // must not lock the app again.
+        if (suppressLock) {
+            suppressLock = false;
+            return;
+        }
+        if (pausedAt > 0 && System.currentTimeMillis() - pausedAt > RELOCK_MS) {
+            js("onLockNow");
+        }
+    }
+
+    private static String hex(byte[] b) {
+        StringBuilder sb = new StringBuilder();
+        for (byte x : b) sb.append(String.format("%02x", x));
+        return sb.toString();
+    }
+
+    private static String sha(String text) throws Exception {
+        return hex(MessageDigest.getInstance("SHA-256").digest(text.getBytes("UTF-8")));
+    }
+
     private SharedPreferences prefs() {
         return getSharedPreferences("gb", MODE_PRIVATE);
     }
@@ -114,6 +156,7 @@ public class MainActivity extends Activity {
                     if (result.hasResolution()) {
                         try {
                             pendingAction = then;
+                            suppressLock = true;
                             IntentSender sender = result.getPendingIntent().getIntentSender();
                             startIntentSenderForResult(sender, REQ_AUTH, null, 0, 0, 0);
                         } catch (IntentSender.SendIntentException e) {
@@ -129,6 +172,10 @@ public class MainActivity extends Activity {
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == REQ_LOCK) {
+            js("onPhoneResult", resultCode == RESULT_OK ? "1" : "0");
+            return;
+        }
         if (requestCode == REQ_AUTH) {
             if (resultCode == RESULT_OK && data != null) {
                 try {
@@ -148,6 +195,18 @@ public class MainActivity extends Activity {
         final String token = r.getAccessToken();
         if (token == null) {
             js("onSyncError", "Google did not give access");
+            return;
+        }
+        if ("verify".equals(then)) {
+            // Used to reset a forgotten PIN: the Google account must be the one already linked.
+            String acct = null;
+            try {
+                if (r.toGoogleSignInAccount() != null) acct = r.toGoogleSignInAccount().getEmail();
+            } catch (Exception ignored) {
+            }
+            String saved = prefs().getString("email", "");
+            boolean same = acct == null || saved.isEmpty() || acct.equalsIgnoreCase(saved);
+            js("onVerified", same ? "1" : "0");
             return;
         }
         try {
@@ -333,6 +392,90 @@ public class MainActivity extends Activity {
         }
 
         @JavascriptInterface
+        public String lockMode() {
+            return prefs().getString("lock_mode", "");
+        }
+
+        @JavascriptInterface
+        public void setLockMode(String m) {
+            prefs().edit().putString("lock_mode", m).apply();
+        }
+
+        @JavascriptInterface
+        public boolean pinSet(String pin) {
+            try {
+                byte[] salt = new byte[16];
+                new SecureRandom().nextBytes(salt);
+                String saltHex = hex(salt);
+                prefs().edit().putString("lock_salt", saltHex)
+                        .putString("lock_hash", sha(saltHex + pin))
+                        .putString("lock_mode", "pin").apply();
+                return true;
+            } catch (Exception e) {
+                return false;
+            }
+        }
+
+        @JavascriptInterface
+        public boolean pinCheck(String pin) {
+            try {
+                String saltHex = prefs().getString("lock_salt", "");
+                return !saltHex.isEmpty() && sha(saltHex + pin).equals(prefs().getString("lock_hash", ""));
+            } catch (Exception e) {
+                return false;
+            }
+        }
+
+        @JavascriptInterface
+        public boolean deviceSecure() {
+            KeyguardManager km = (KeyguardManager) getSystemService(Context.KEYGUARD_SERVICE);
+            return km != null && km.isDeviceSecure();
+        }
+
+        @JavascriptInterface
+        public void phoneUnlock() {
+            runOnUiThread(() -> {
+                KeyguardManager km = (KeyguardManager) getSystemService(Context.KEYGUARD_SERVICE);
+                Intent i = km == null ? null
+                        : km.createConfirmDeviceCredentialIntent("Gold Bhishi", "Unlock with your phone lock");
+                if (i == null) {
+                    js("onPhoneResult", "0");
+                    return;
+                }
+                suppressLock = true;
+                startActivityForResult(i, REQ_LOCK);
+            });
+        }
+
+        @JavascriptInterface
+        public void verifyGoogle() {
+            runOnUiThread(() -> authorize("verify"));
+        }
+
+        /** Opens Android's print dialog for the given page; "Save as PDF" there makes the PDF. */
+        @JavascriptInterface
+        public void printHtml(final String html, final String title) {
+            runOnUiThread(() -> {
+                final WebView w = new WebView(MainActivity.this);
+                printView = w;
+                w.setWebViewClient(new WebViewClient() {
+                    @Override
+                    public void onPageFinished(WebView view, String url) {
+                        PrintManager pm = (PrintManager) getSystemService(Context.PRINT_SERVICE);
+                        if (pm == null) return;
+                        String name = title.replaceAll("[^A-Za-z0-9 _-]", "").trim();
+                        if (name.isEmpty()) name = "Gold Bhishi";
+                        PrintDocumentAdapter adapter = view.createPrintDocumentAdapter(name);
+                        suppressLock = true;
+                        pm.print(name, adapter, new PrintAttributes.Builder()
+                                .setMediaSize(PrintAttributes.MediaSize.ISO_A4).build());
+                    }
+                });
+                w.loadDataWithBaseURL(null, html, "text/html", "UTF-8", null);
+            });
+        }
+
+        @JavascriptInterface
         public void signOut() {
             prefs().edit().remove("email").apply();
         }
@@ -340,6 +483,7 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public void share(final String text) {
             runOnUiThread(() -> {
+                suppressLock = true;
                 Intent i = new Intent(Intent.ACTION_SEND);
                 i.setType("text/plain");
                 i.putExtra(Intent.EXTRA_SUBJECT, "Gold Bhishi backup");

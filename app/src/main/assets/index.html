@@ -59,6 +59,19 @@ button.newbox .sub{font-size:12px;font-weight:400;color:var(--muted)}
 button.acc .tag.purple{color:#3F2A63;background:#E6DDF3}
 .sticky{position:sticky;bottom:-24px;display:flex;gap:12px;padding:12px 0 24px;background:var(--bg);margin-top:8px}
 .sticky button{flex:1;height:52px;font-size:16px}
+.lockwrap{min-height:100%;display:flex;flex-direction:column;align-items:center;gap:16px;padding:28px 0;text-align:center}
+.keys{display:grid;grid-template-columns:repeat(3,72px);gap:14px 24px;justify-content:center}
+.key{width:72px;height:72px;border-radius:36px;padding:0;background:#fff;color:var(--ink);border:1px solid var(--line);font-size:28px;font-weight:600;display:flex;align-items:center;justify-content:center}
+.key.fp{background:var(--soft);border-color:var(--soft)}
+.key.del{background:transparent;border-color:transparent}
+.compact .keys{grid-template-columns:repeat(3,60px);gap:10px 22px}
+.compact .key{width:60px;height:60px;font-size:24px}
+.dots{display:flex;gap:18px;justify-content:center;height:20px;align-items:center}
+.dot{width:16px;height:16px;border-radius:8px;border:2px solid var(--gold)}
+.dot.on{background:var(--gold)}
+.opt{height:auto;width:100%;text-align:left;background:#fff;color:var(--ink);border:1px solid var(--line);border-radius:14px;padding:12px 14px;font-weight:400;display:flex;gap:12px;align-items:center;margin-bottom:10px}
+.opt.on{background:var(--soft);border:2px solid var(--gold)}
+.linkbtn{background:transparent;color:#6B4800;height:44px;font-size:14px;font-weight:600}
 .hr{height:1px;background:var(--line);margin:14px 0 10px}
 .stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px}
 .stats .l{font-size:11px;color:var(--muted)}
@@ -84,6 +97,8 @@ var state = { bhishis: [], lends: [], khatas: [], rates: { '22K': 0, '24K': 0 },
 var lendDraft = null;
 var entryDraft = null;
 var kEditing = -1;
+var lockMode = '', lockBuf = '', lockMsg = '', lockReturn = 'home', lockCtx = '', lockFrom = '';
+var setStep = 'create', setChoice = 'pin', firstPin = '', lockChanging = false, syncStarted = false;
 var view = 'home';
 var draft = null;
 var editing = -1;
@@ -245,6 +260,8 @@ function go(v) {
   render();
 }
 window.goBack = function () {
+  if (view === 'lock' || view === 'setlock' || view === 'signin') return false;
+  if (view === 'khataEdit') { view = 'khata'; render(); return true; }
   if (view !== 'home') { view = 'home'; render(); return true; }
   return false;
 };
@@ -261,7 +278,7 @@ function renderGold() {
   state.sel = b.id;
   var c = calc(b);
   var h = '<div class="row" style="margin-bottom:12px"><button class="small soft" onclick="go(\'home\')" aria-label="Back">&larr; Back</button>' +
-          '<div><h1>' + esc(b.name) + '</h1><div class="muted" style="color:#2F6B2F;font-size:11px">' + b.gold + ' gold &middot; ' + esc(b.city || '') + (email ? ' &middot; Saved to Google Drive' : ' &middot; Saved on this phone') + '</div></div></div>';
+          '<div><h1>' + esc(b.name) + '</h1><div class="muted" style="color:#2F6B2F;font-size:11px">' + b.gold + ' gold &middot; ' + esc(b.city || '') + (email ? ' &middot; Saved to Google Drive' : ' &middot; Saved on this phone') + '</div></div><button class="small soft" style="margin-left:auto;display:flex;align-items:center;gap:6px" onclick="pdfGold()" aria-label="Create PDF"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8z"/><path d="M14 3v5h5"/></svg>PDF</button></div>';
 
   h += '<div class="dark"><div class="row between"><div><div class="lbl">Value today</div><div class="big">' +
        (c.rate > 0 ? '&#8377;' + fmt(c.value) : '-') + '</div></div>' +
@@ -318,7 +335,8 @@ function renderHome() {
   var h = '<div class="row" style="margin-bottom:12px"><div class="logo"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#FFF9EC" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 15l2-8h8l2 8z"/><path d="M3 19h18"/></svg></div>' +
           '<div><h1>My Accounts</h1><div class="muted" style="color:#2F6B2F;font-size:11px">' + (email ? 'Saved to Google Drive &middot; ' + esc(email) : 'Saved on this phone') + '</div></div></div>';
 
-  h += '<div class="row between" style="margin:4px 4px 10px"><h2>Your accounts</h2><span class="muted">Tap to open</span></div>';
+  var anyAcc = state.bhishis.length || state.lends.length || state.khatas.length;
+  h += '<div class="row between" style="margin:4px 4px 10px"><h2>Your accounts</h2>' + (anyAcc ? '<button class="small soft" onclick="pdfAll()" aria-label="PDF of all accounts">PDF of all</button>' : '<span class="muted">Tap to open</span>') + '</div>';
   if (!state.bhishis.length && !state.lends.length && !state.khatas.length) {
     h += '<div class="card muted" style="text-align:center;padding:24px 14px;font-size:14px">No accounts yet. Create one below.</div>';
   } else {
@@ -466,7 +484,7 @@ function renderKhata() {
   var c = kCalc(k);
   var settled = Math.abs(c.bal) < 0.5;
   var h = '<div class="row" style="margin-bottom:12px"><button class="small soft" onclick="go(\'home\')" aria-label="Back">&larr; Back</button>' +
-    '<div><h1>' + esc(k.name) + '</h1><div class="muted" style="font-size:11px">Khata' + (k.phone ? ' &middot; ' + esc(k.phone) : '') + (k.rate > 0 ? ' &middot; ' + k.rate + '% per year' : '') + '</div></div></div>';
+    '<div><h1>' + esc(k.name) + '</h1><div class="muted" style="font-size:11px">Khata' + (k.phone ? ' &middot; ' + esc(k.phone) : '') + (k.rate > 0 ? ' &middot; ' + k.rate + '% per year' : '') + '</div></div><button class="small soft" style="margin-left:auto;display:flex;align-items:center;gap:6px" onclick="pdfKhata()" aria-label="Create PDF"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8z"/><path d="M14 3v5h5"/></svg>PDF</button><button class="small soft" style="margin-left:6px" onclick="go(\'khataEdit\')" aria-label="Edit person details">&#9998;</button></div>';
   h += '<div class="dark"><div class="lbl">' + (settled ? 'Settled' : (c.bal > 0 ? 'You will get' : 'You will give')) + '</div><div class="big">&#8377;' + fmt(Math.abs(c.bal)) + '</div>' +
        '<div style="height:1px;background:#4A3D27;margin:12px 0"></div>' +
        '<div class="row between"><div><div class="lbl">Total you gave</div><b>&#8377;' + fmt(c.gave) + '</b></div>' +
@@ -491,15 +509,236 @@ function renderKhata() {
     h += '</div>';
   });
 
-  h += '<div class="card"><h2 style="margin-bottom:10px">Person details</h2><div class="grid4 f">' +
-       '<div><label>Name</label><input type="text" value="' + esc(k.name) + '" onchange="kField(\'name\',this.value)"></div>' +
-       '<div><label>Phone</label><input type="tel" inputmode="tel" value="' + esc(k.phone || '') + '" onchange="kField(\'phone\',this.value)"></div>' +
-       '<div><label>Interest % / year</label><input type="number" inputmode="decimal" value="' + (k.rate || '') + '" placeholder="0" onchange="kField(\'rate\',this.value)"></div></div>' +
-       '<p class="muted" style="margin:8px 0 0;line-height:1.4">Interest is simple, only on money you gave, from each entry\'s date. Balance = gave + interest &minus; got.</p></div>';
-  h += '<div style="text-align:center"><button class="danger" onclick="delKhata()">Delete this person</button></div>' +
-       '<div class="sticky"><button class="gave" onclick="openEntry(\'' + k.id + '\',\'gave\')">&#9650; You gave</button><button class="got" onclick="openEntry(\'' + k.id + '\',\'got\')">&#9660; You got</button></div>';
+  h += '<div class="sticky"><button class="gave" onclick="openEntry(\'' + k.id + '\',\'gave\')">&#9650; You gave</button><button class="got" onclick="openEntry(\'' + k.id + '\',\'got\')">&#9660; You got</button></div>';
   return h;
 }
+
+
+function renderKhataEdit() {
+  var k = curKhata();
+  if (!k) { view = 'home'; return renderHome(); }
+  return '<div class="row" style="margin-bottom:12px"><button class="small soft" onclick="openKhata(\'' + k.id + '\')" aria-label="Back">&larr; Back</button><h1>Edit person</h1></div>' +
+    '<div class="card"><div class="col f" style="gap:12px">' +
+    '<div><label>Name</label><input type="text" value="' + esc(k.name) + '" onchange="kField(\'name\',this.value)"></div>' +
+    '<div><label>Phone</label><input type="tel" inputmode="tel" value="' + esc(k.phone || '') + '" onchange="kField(\'phone\',this.value)"></div>' +
+    '<div><label>Interest % / year</label><input type="number" inputmode="decimal" value="' + (k.rate || '') + '" placeholder="0" onchange="kField(\'rate\',this.value)"></div></div>' +
+    '<p class="muted" style="margin:10px 0 0;line-height:1.4">Interest is simple, only on money you gave, from each entry\'s date. Balance = gave + interest &minus; got.</p></div>' +
+    '<div style="text-align:center"><button class="danger" onclick="delKhata()">Delete this person</button></div>';
+}
+
+/* ---------- PDF ---------- */
+var PDF_CSS = 'body{font-family:Arial,Helvetica,sans-serif;color:#1F1A10;margin:0;padding:8px}h1{font-size:22px;margin:0 0 4px}h2{font-size:15px;margin:22px 0 0}' +
+  '.sub{color:#4A3D27;font-size:12px}.brand{font-size:11px;font-weight:700;letter-spacing:.08em;color:#6B4800}' +
+  'table{width:100%;border-collapse:collapse;margin-top:10px;font-size:12px}th{background:#F3E6BF;text-align:left;padding:7px 8px}td{padding:7px 8px;border-bottom:1px solid #DDD}' +
+  '.r{text-align:right}.tot td{font-weight:700;border-top:2px solid #1F1A10}.head{display:flex;justify-content:space-between;border-bottom:2px solid #8A5F00;padding-bottom:10px}' +
+  '.box{border:1.5px solid #1F1A10;border-radius:6px;padding:8px 12px;text-align:right;float:right}.sum{width:300px;margin:14px 0 0 auto;font-size:13px}.sum div{display:flex;justify-content:space-between;padding:3px 0}' +
+  '.sum .big{font-weight:700;font-size:15px;border-top:1.5px solid #1F1A10;margin-top:4px;padding-top:6px}.foot{margin-top:28px;font-size:10px;color:#555;border-top:1px solid #DDD;padding-top:6px}@page{size:A4;margin:14mm}';
+function pdfWrap(title, sub, body) {
+  return '<!doctype html><html><head><meta charset="utf-8"><title>' + esc(title) + '</title><style>' + PDF_CSS + '</style></head><body>' +
+    '<div class="head"><div><div class="brand">GOLD BHISHI</div><h1>' + esc(title) + '</h1></div><div class="sub" style="text-align:right">Generated on ' + fmtDate(todayStr()) + (sub ? '<br>' + sub : '') + '</div></div>' +
+    body + '<div class="foot">Created with Gold Bhishi app</div></body></html>';
+}
+function sendPdf(html, name) {
+  if (window.Android) Android.printHtml(html, name);
+  else { window.__pdf = html; alert('PDF works inside the Android app'); }
+}
+function rs(n) { return '&#8377;' + fmt(n); }
+function pdfKhata() {
+  var k = curKhata(); if (!k) return;
+  var c = kCalc(k);
+  var rows = k.entries.map(function (e, i) { return { e: e, i: i }; }).sort(function (a, b) { return a.e.date < b.e.date ? -1 : a.e.date > b.e.date ? 1 : a.i - b.i; });
+  var t = '<table><tr><th>Date</th><th>Note</th><th class="r">You gave</th><th class="r">You got</th></tr>';
+  rows.forEach(function (x) {
+    var g = x.e.type === 'gave';
+    t += '<tr><td>' + fmtDate(x.e.date) + '</td><td>' + esc(x.e.note || '') + '</td><td class="r">' + (g ? rs(x.e.amount) : '&ndash;') + '</td><td class="r">' + (!g ? rs(x.e.amount) : '&ndash;') + '</td></tr>';
+  });
+  t += '<tr class="tot"><td></td><td>Total</td><td class="r">' + rs(c.gave) + '</td><td class="r">' + rs(c.got) + '</td></tr></table>';
+  var settled = Math.abs(c.bal) < 0.5;
+  var lbl = settled ? 'Settled' : (c.bal > 0 ? 'You will get' : 'You will give');
+  var body = '<div style="margin-top:14px;overflow:hidden"><div class="box"><div class="sub">Net balance &mdash; ' + lbl.toLowerCase() + '</div><div style="font-size:20px;font-weight:700">' + rs(Math.abs(c.bal)) + '</div></div>' +
+    '<div class="sub">Account of</div><div style="font-size:18px;font-weight:700">' + esc(k.name) + '</div>' + (k.phone ? '<div class="sub">Phone: ' + esc(k.phone) + '</div>' : '') + '</div>' + t +
+    '<div class="sum"><div><span>Total you gave</span><span>' + rs(c.gave) + '</span></div><div><span>Total you got</span><span>' + rs(c.got) + '</span></div>' +
+    (k.rate > 0 ? '<div><span>Interest (' + k.rate + '% per year)</span><span>' + rs(c.interest) + '</span></div>' : '') +
+    '<div class="big"><span>' + lbl + '</span><span>' + rs(Math.abs(c.bal)) + '</span></div></div>';
+  sendPdf(pdfWrap('Khata Statement', '', body), 'Khata ' + k.name);
+}
+function pdfGold() {
+  var b = cur(); if (!b) return;
+  var c = calc(b);
+  var t = '<table><tr><th>#</th><th>Date</th><th class="r">Paid</th><th class="r">Rate that day</th><th class="r">Grams</th><th class="r">Value today</th><th class="r">Profit / Loss</th></tr>';
+  b.purchases.forEach(function (p, i) {
+    var r = c.rows[i];
+    var pl = r.pl === null ? '-' : (r.pl >= 0 ? '+' : '&minus;') + rs(Math.abs(r.pl));
+    t += '<tr><td>' + (i + 1) + '</td><td>' + fmtDate(p.date) + '</td><td class="r">' + rs(p.amount) + '</td><td class="r">' + (p.rate > 0 ? rs(p.rate) : '-') + '</td><td class="r">' + r.g.toFixed(3) + ' g</td><td class="r">' + (c.rate > 0 ? rs(r.v) : '-') + '</td><td class="r">' + pl + '</td></tr>';
+  });
+  var tpl = c.pl === null ? '-' : (c.pl >= 0 ? '+' : '&minus;') + rs(Math.abs(c.pl));
+  t += '<tr class="tot"><td></td><td>Total</td><td class="r">' + rs(c.paid) + '</td><td></td><td class="r">' + c.grams.toFixed(3) + ' g</td><td class="r">' + (c.rate > 0 ? rs(c.value) : '-') + '</td><td class="r">' + tpl + '</td></tr></table>';
+  var body = '<div style="margin-top:14px"><div class="sub">Gold Bhishi</div><div style="font-size:18px;font-weight:700">' + esc(b.name) + '</div>' +
+    '<div class="sub">' + b.gold + ' gold &middot; ' + esc(b.city || '') + ' &middot; ' + rs(b.amount) + ' per month &middot; ' + b.purchases.length + ' of ' + b.months + ' months paid</div></div>' + t +
+    '<div class="sum"><div><span>Total paid</span><span>' + rs(c.paid) + '</span></div><div><span>Gold bought</span><span>' + c.grams.toFixed(3) + ' g</span></div>' +
+    '<div><span>' + b.gold + ' rate used today</span><span>' + (c.rate > 0 ? rs(c.rate) + ' / g' : '-') + '</span></div>' +
+    '<div class="big"><span>Value today</span><span>' + (c.rate > 0 ? rs(c.value) : '-') + '</span></div><div><span>Profit / Loss</span><span>' + tpl + '</span></div></div>';
+  sendPdf(pdfWrap('Gold Bhishi Statement', '', body), b.name);
+}
+function pdfAll() {
+  var body = '';
+  if (state.bhishis.length) {
+    var tp = 0, tv = 0, any = false;
+    body += '<h2>Gold Bhishi</h2><table><tr><th>Name</th><th>Gold</th><th class="r">Paid</th><th class="r">Grams</th><th class="r">Value today</th><th class="r">Profit / Loss</th></tr>';
+    state.bhishis.forEach(function (b) {
+      var c = calc(b); tp += c.paid;
+      if (c.rate > 0 && c.grams > 0) { tv += c.value; any = true; }
+      body += '<tr><td>' + esc(b.name) + '</td><td>' + b.gold + '</td><td class="r">' + rs(c.paid) + '</td><td class="r">' + c.grams.toFixed(3) + ' g</td><td class="r">' + (c.rate > 0 ? rs(c.value) : '-') + '</td><td class="r">' + (c.pl === null ? '-' : (c.pl >= 0 ? '+' : '&minus;') + rs(Math.abs(c.pl))) + '</td></tr>';
+    });
+    body += '<tr class="tot"><td>Total</td><td></td><td class="r">' + rs(tp) + '</td><td></td><td class="r">' + (any ? rs(tv) : '-') + '</td><td></td></tr></table>';
+  }
+  if (state.khatas.length) {
+    var net = 0;
+    body += '<h2>Khata Book</h2><table><tr><th>Person</th><th class="r">You gave</th><th class="r">You got</th><th class="r">Balance</th></tr>';
+    state.khatas.forEach(function (k) {
+      var c = kCalc(k); net += c.bal;
+      body += '<tr><td>' + esc(k.name) + '</td><td class="r">' + rs(c.gave) + '</td><td class="r">' + rs(c.got) + '</td><td class="r">' + rs(Math.abs(c.bal)) + (Math.abs(c.bal) < 0.5 ? '' : (c.bal > 0 ? ' (you will get)' : ' (you will give)')) + '</td></tr>';
+    });
+    body += '<tr class="tot"><td>Net</td><td></td><td></td><td class="r">' + rs(Math.abs(net)) + (Math.abs(net) < 0.5 ? '' : (net > 0 ? ' (you will get)' : ' (you will give)')) + '</td></tr></table>';
+  }
+  if (state.lends.length) {
+    var tl = 0;
+    body += '<h2>Lend Money</h2><table><tr><th>Person</th><th>Lent on</th><th class="r">Lent</th><th class="r">To receive</th></tr>';
+    state.lends.forEach(function (l) {
+      var c = lendCalc(l); tl += c.due;
+      body += '<tr><td>' + esc(l.name) + '</td><td>' + fmtDate(l.date) + '</td><td class="r">' + rs(l.amount) + '</td><td class="r">' + rs(c.due) + '</td></tr>';
+    });
+    body += '<tr class="tot"><td>Total</td><td></td><td></td><td class="r">' + rs(tl) + '</td></tr></table>';
+  }
+  if (!body) { alert('Nothing to print yet'); return; }
+  sendPdf(pdfWrap('All Accounts Summary', '', body), 'Gold Bhishi summary');
+}
+
+/* ---------- App lock ---------- */
+function dotsHtml(n) {
+  var h = '<div class="dots" role="img" aria-label="' + n + ' of 4 digits entered">';
+  for (var i = 0; i < 4; i++) h += '<div class="dot' + (i < n ? ' on' : '') + '"></div>';
+  return h + '</div>';
+}
+function keypadHtml(dig, del, fp) {
+  var h = '<div class="keys">';
+  for (var n = 1; n <= 9; n++) h += '<button class="key" onclick="' + dig + '(' + n + ')">' + n + '</button>';
+  h += fp ? '<button class="key fp" aria-label="Use phone lock" onclick="' + fp + '()"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#3F2C00" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 10a6 6 0 0112 0v2"/><path d="M9 20c-.6-1.6-1-3.4-1-5.5V10a4 4 0 018 0v4.5c0 1.4.2 2.6.7 3.5"/><path d="M12 11v4c0 2 .4 3.5 1 5"/></svg></button>' : '<span></span>';
+  h += '<button class="key" onclick="' + dig + '(0)">0</button><button class="key del" aria-label="Delete last digit" onclick="' + del + '()"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#2B2113" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 5H9l-6 7 6 7h12z"/><path d="M13 9.5l5 5M18 9.5l-5 5"/></svg></button></div>';
+  return h;
+}
+function lockLogo() {
+  return '<div style="width:72px;height:72px;border-radius:36px;background:var(--gold);display:flex;align-items:center;justify-content:center"><svg width="38" height="38" viewBox="0 0 24 24" fill="none" stroke="#FFF9EC" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 018 0v3"/></svg></div>';
+}
+function renderLock() {
+  var phone = lockMode === 'phone';
+  return '<div class="lockwrap">' + lockLogo() + '<div><h1 style="font-size:24px">Gold Bhishi</h1><p style="margin:6px 0 0;color:#4A3D27">' + (phone ? 'Unlock with your phone lock' : 'Enter your 4-digit PIN') + '</p></div>' +
+    (phone ? '<button style="margin-top:8px;min-width:200px" onclick="tryPhone(\'unlock\')">Unlock</button>'
+           : dotsHtml(lockBuf.length) + keypadHtml('lockDigit', 'lockDel', 'phoneKeyUnlock')) +
+    '<div class="muted" role="status" style="min-height:18px;font-size:13px">' + esc(lockMsg) + '</div>' +
+    (phone ? '' : '<button class="linkbtn" onclick="forgotPin()">Forgot PIN?</button>') + '</div>';
+}
+function optHtml(id, title, sub) {
+  var on = setChoice === id;
+  return '<button class="opt' + (on ? ' on' : '') + '" onclick="chooseLock(\'' + id + '\')"><span style="width:22px;height:22px;border-radius:11px;border:2px solid ' + (on ? '#8A5F00' : '#6B5A3A') + ';display:flex;align-items:center;justify-content:center;flex:none">' + (on ? '<span style="width:10px;height:10px;border-radius:5px;background:#8A5F00"></span>' : '') + '</span><span><b style="font-size:15px;display:block">' + title + '</b><span class="muted" style="font-size:12px;color:#4A3D27">' + sub + '</span></span></button>';
+}
+function renderSetLock() {
+  var h = '<div class="compact"><h1 style="font-size:24px">Protect your data</h1><p style="margin:4px 0 14px;font-size:14px;color:#4A3D27;line-height:1.4">Choose how to unlock the app each time you open it.</p>' +
+    optHtml('pin', 'My own 4-digit PIN', 'A PIN you choose, only for this app') +
+    optHtml('phone', 'Phone screen lock', 'Your phone\'s fingerprint, face, pattern or PIN');
+  if (setChoice === 'pin') {
+    h += '<div style="text-align:center;display:flex;flex-direction:column;align-items:center;gap:12px;margin-top:8px"><b style="font-size:14px">' + (setStep === 'confirm' ? 'Confirm your PIN' : 'Create a 4-digit PIN') + '</b>' +
+      dotsHtml(lockBuf.length) + keypadHtml('setDigit', 'setDel', '') + '<div class="muted" role="status" style="min-height:18px;font-size:13px">' + esc(lockMsg) + '</div></div>';
+  } else {
+    h += '<div class="card" style="font-size:13px;line-height:1.5">The app will ask for your phone\'s own lock each time. Make sure a screen lock is set in your phone settings.</div>' +
+      '<button style="width:100%" onclick="tryPhone(\'setup\')">Use phone lock</button><div class="muted" role="status" style="min-height:18px;font-size:13px;margin-top:8px;text-align:center">' + esc(lockMsg) + '</div>';
+  }
+  h += '<div style="text-align:center;margin-top:6px">' + (lockChanging ? '<button class="linkbtn" onclick="cancelLockChange()">Cancel</button>' : '<button class="linkbtn" onclick="skipLock()">Skip for now</button>') +
+    '<div class="muted" style="font-size:12px;line-height:1.4">Forgot the PIN later? Sign in with Google to set a new one.</div></div></div>';
+  return h;
+}
+function lockCard() {
+  if (!window.Android) return '';
+  var st = lockMode === 'pin' ? 'PIN lock is on' : lockMode === 'phone' ? 'Phone lock is on' : 'Lock is off';
+  return '<div class="card"><h2>App lock</h2><p class="muted" style="font-size:13px">' + st + '</p><div class="row"><button onclick="changeLock()">' + (lockMode === 'pin' || lockMode === 'phone' ? 'Change lock' : 'Turn on lock') + '</button>' +
+    (lockMode === 'pin' || lockMode === 'phone' ? '<button class="danger" onclick="lockOff()">Turn off</button>' : '') + '</div></div>';
+}
+function unlock() {
+  lockBuf = ''; lockMsg = '';
+  view = (lockReturn && lockReturn !== 'lock') ? lockReturn : 'home';
+  render(); startSync();
+}
+function startSync() {
+  if (syncStarted) return;
+  syncStarted = true;
+  if (window.Android && email) Android.pull();
+  var seen = {};
+  state.bhishis.forEach(function (b) { var c = b.city || 'Pune'; if (!seen[c]) { seen[c] = 1; fetchCityRate(c, false); } });
+}
+function lockDigit(d) {
+  if (lockBuf.length >= 4) return;
+  lockBuf += d; lockMsg = '';
+  if (lockBuf.length < 4) { render(); return; }
+  if (Android.pinCheck(lockBuf)) unlock();
+  else { lockBuf = ''; lockMsg = 'Wrong PIN. Try again.'; render(); }
+}
+function lockDel() { lockBuf = lockBuf.slice(0, -1); render(); }
+function phoneKeyUnlock() { tryPhone('unlock'); }
+function tryPhone(ctx) {
+  lockCtx = ctx;
+  if (!Android.deviceSecure()) { lockMsg = 'Set a screen lock in your phone settings first.'; render(); return; }
+  lockMsg = ''; Android.phoneUnlock();
+}
+function forgotPin() {
+  if (!email) { alert('To reset the PIN you must have signed in with Google. Otherwise clear this app\'s data in your phone settings (unsaved data will be lost).'); return; }
+  lockMsg = 'Opening Google...'; render(); Android.verifyGoogle();
+}
+function chooseLock(c) { setChoice = c; lockBuf = ''; firstPin = ''; setStep = 'create'; lockMsg = ''; render(); }
+function setDigit(d) {
+  if (lockBuf.length >= 4) return;
+  lockBuf += d; lockMsg = '';
+  if (lockBuf.length < 4) { render(); return; }
+  if (setStep === 'create') { firstPin = lockBuf; lockBuf = ''; setStep = 'confirm'; render(); return; }
+  if (lockBuf === firstPin) {
+    var okp = Android.pinSet(lockBuf);
+    lockBuf = ''; firstPin = '';
+    if (okp) { lockMode = 'pin'; finishLockSetup(); } else { lockMsg = 'Could not save the PIN'; setStep = 'create'; render(); }
+  } else { lockBuf = ''; firstPin = ''; setStep = 'create'; lockMsg = 'PINs did not match. Start again.'; render(); }
+}
+function setDel() { lockBuf = lockBuf.slice(0, -1); render(); }
+function finishLockSetup() {
+  lockChanging = false; lockMsg = '';
+  view = lockFrom === 'backup' ? 'backup' : 'home'; lockFrom = '';
+  render(); startSync();
+}
+function skipLock() { Android.setLockMode('none'); lockMode = 'none'; view = 'home'; render(); startSync(); }
+function changeLock() { lockChanging = true; lockFrom = 'backup'; setChoice = 'pin'; setStep = 'create'; lockBuf = ''; lockMsg = ''; view = 'setlock'; render(); }
+function cancelLockChange() { lockChanging = false; lockFrom = ''; view = 'backup'; render(); }
+function lockOff() {
+  if (!confirm('Turn off the app lock?')) return;
+  Android.setLockMode('none'); lockMode = 'none'; render();
+}
+function nextAfterAuth() { return (window.Android && lockMode === '') ? 'setlock' : 'home'; }
+window.onPhoneResult = function (ok) {
+  if (ok === '1') {
+    if (lockCtx === 'unlock') { unlock(); return; }
+    if (lockCtx === 'setup') { Android.setLockMode('phone'); lockMode = 'phone'; finishLockSetup(); return; }
+  }
+  lockMsg = lockCtx === 'setup' ? 'Phone lock was not confirmed.' : 'Not unlocked. Try again.';
+  render();
+};
+window.onLockNow = function () {
+  if ((lockMode === 'pin' || lockMode === 'phone') && view !== 'lock' && view !== 'setlock') {
+    lockReturn = view; view = 'lock'; lockBuf = ''; lockMsg = ''; render();
+    if (lockMode === 'phone') tryPhone('unlock');
+  }
+};
+window.onVerified = function (ok) {
+  if (ok === '1') {
+    Android.setLockMode(''); lockMode = ''; lockChanging = false; lockFrom = '';
+    setChoice = 'pin'; setStep = 'create'; lockBuf = ''; lockMsg = ''; view = 'setlock'; render();
+  } else { lockMsg = 'Could not verify with Google.'; render(); }
+};
 
 
 function renderCreate() {
@@ -548,7 +787,7 @@ function accountCard() {
 }
 
 function renderBackup() {
-  return '<h1 style="margin-bottom:12px">Backup</h1>' + accountCard() +
+  return '<h1 style="margin-bottom:12px">Backup</h1>' + lockCard() + accountCard() +
     '<div class="card"><h2>Save a backup</h2><p class="muted" style="font-size:13px;line-height:1.5">Tap the button, then choose Drive, Gmail or WhatsApp. Keep this safe &mdash; use it on a new phone.</p>' +
     '<button onclick="exportData()">Share backup</button></div>' +
     '<div class="card"><h2>Restore from backup</h2><p class="muted" style="font-size:13px;line-height:1.5">Paste the backup text here. This replaces the data on this phone.</p>' +
@@ -558,13 +797,16 @@ function renderBackup() {
 
 function render() {
   var m = document.getElementById('main');
-  document.querySelector('nav').style.display = (view === 'signin') ? 'none' : 'flex';
+  document.querySelector('nav').style.display = (view === 'signin' || view === 'lock' || view === 'setlock') ? 'none' : 'flex';
   if (view === 'signin') m.innerHTML = renderSignIn();
   else if (view === 'create') m.innerHTML = renderCreate();
   else if (view === 'createLend') m.innerHTML = renderCreateLend();
   else if (view === 'gold') m.innerHTML = renderGold();
   else if (view === 'lend') m.innerHTML = renderLend();
   else if (view === 'khata') m.innerHTML = renderKhata();
+  else if (view === 'khataEdit') m.innerHTML = renderKhataEdit();
+  else if (view === 'lock') m.innerHTML = renderLock();
+  else if (view === 'setlock') m.innerHTML = renderSetLock();
   else if (view === 'entry') m.innerHTML = renderEntry();
   else if (view === 'backup') m.innerHTML = renderBackup();
   else m.innerHTML = renderHome();
@@ -730,7 +972,7 @@ function importData() {
 function signIn() { syncMsg = 'Opening Google...'; render(); Android.signIn(); }
 function syncNow() { syncMsg = 'Syncing...'; render(); Android.pull(); }
 function signOut() { Android.signOut(); email = ''; syncMsg = ''; render(); }
-function skipSignIn() { try { localStorage.setItem('gb_skip', '1'); } catch (e) {} view = 'home'; render(); }
+function skipSignIn() { try { localStorage.setItem('gb_skip', '1'); } catch (e) {} view = nextAfterAuth(); render(); }
 
 window.onPulled = function (remote, em) {
   if (em) email = em;
@@ -747,7 +989,7 @@ window.onPulled = function (remote, em) {
   } else {
     syncMsg = 'Signed in. Nothing to restore yet.';
   }
-  if (view === 'signin') view = 'home';
+  if (view === 'signin') view = nextAfterAuth();
   render();
 };
 window.onRate = function (city, r22, r24, date) {
@@ -772,18 +1014,23 @@ window.onSyncError = function (msg) {
 };
 
 load();
-if (window.Android) {
-  email = Android.getEmail() || '';
+function startView() {
+  if (!window.Android) return 'home';
   var skipped = false;
   try { skipped = !!localStorage.getItem('gb_skip'); } catch (e) {}
-  if (!email && !skipped) view = 'signin';
+  if (!email && !skipped) return 'signin';
+  return lockMode === '' ? 'setlock' : 'home';
 }
-render();
-if (window.Android && email) { Android.pull(); }
-(function () {
-  var seen = {};
-  state.bhishis.forEach(function (b) { var c = b.city || 'Pune'; if (!seen[c]) { seen[c] = 1; fetchCityRate(c, false); } });
-})();
+if (window.Android) {
+  email = Android.getEmail() || '';
+  lockMode = Android.lockMode() || '';
+}
+if (window.Android && (lockMode === 'pin' || lockMode === 'phone')) {
+  lockReturn = startView(); view = 'lock'; render();
+  if (lockMode === 'phone') tryPhone('unlock');
+} else {
+  view = startView(); render(); startSync();
+}
 </script>
 </body>
 </html>
