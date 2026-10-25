@@ -43,6 +43,7 @@ button.danger{background:transparent;color:var(--red);height:36px;font-size:13px
 nav{display:flex;border-top:1px solid var(--line);background:#fff;height:64px}
 nav button{flex:1;height:64px;border-radius:0;background:#fff;color:var(--muted);font-size:12px;font-weight:600;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px}
 nav button.on{color:#6B4800;font-weight:700}
+select{width:100%;height:44px;border:1px solid var(--edge);border-radius:10px;padding:0 10px;font-size:16px;background:#fff;color:var(--ink);font-family:inherit}
 .pad{height:12px}
 .stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px}
 .stats .l{font-size:11px;color:var(--muted)}
@@ -71,6 +72,8 @@ var editing = -1;
 var email = '';
 var syncMsg = '';
 var pushTimer = null;
+var rateStatus = {};
+var CITIES = ['Pune','Mumbai','Nashik','Nagpur','Delhi','Chennai','Kolkata','Bengaluru','Hyderabad','Ahmedabad'];
 
 function todayStr() {
   var d = new Date();
@@ -92,7 +95,7 @@ function fmtDate(s) {
   return parseInt(p[2], 10) + ' ' + mon[parseInt(p[1], 10) - 1] + ' ' + p[0];
 }
 function newDraft() {
-  return { name: 'My Gold Bhishi', gold: '22K', amount: '', months: 12, start: todayStr() };
+  return { name: 'My Gold Bhishi', city: 'Pune', gold: '22K', amount: '', months: 12, start: todayStr() };
 }
 
 function load() {
@@ -128,8 +131,52 @@ function cur() {
   return state.bhishis[0] || null;
 }
 
+function autoRate(b) {
+  var cr = state.cityRates && state.cityRates[b.city];
+  return cr && cr[b.gold] > 0 ? cr[b.gold] : 0;
+}
+function rateOf(b) {
+  if (b.rateOverride > 0) return b.rateOverride;
+  return autoRate(b) || state.rates[b.gold] || 0;
+}
+function fetchCityRate(city, force) {
+  if (!window.Android || !city) return;
+  var cr = state.cityRates && state.cityRates[city];
+  if (!force && cr && Date.now() - cr.at < 30 * 60 * 1000) return;
+  rateStatus[city] = 'loading';
+  Android.fetchRate(city);
+}
+function citySelect(id, value, onchange) {
+  var h = '<select id="' + id + '" onchange="' + onchange + '">';
+  CITIES.forEach(function (c) { h += '<option' + (c === value ? ' selected' : '') + '>' + c + '</option>'; });
+  return h + '</select>';
+}
+function rateCard(b, c) {
+  var city = b.city || '';
+  var cr = state.cityRates && state.cityRates[city];
+  var st = rateStatus[city];
+  var info;
+  if (b.rateOverride > 0) {
+    info = 'Using your own rate. <button class="small soft" onclick="useAuto()">Use market rate</button>';
+  } else if (st === 'loading') {
+    info = 'Fetching ' + esc(city) + ' rate...';
+  } else if (cr && cr[b.gold] > 0) {
+    info = esc(city) + ' &middot; ' + esc(cr.date || 'today') + ' &middot; market rate';
+  } else if (st) {
+    info = 'Could not fetch (' + esc(st) + '). Enter the rate yourself.';
+  } else {
+    info = 'Enter today\'s rate yourself.';
+  }
+  return '<div class="card"><div class="row" style="align-items:flex-end"><div style="flex:1" class="f"><label for="rateIn">Today\'s ' + b.gold +
+    ' rate (&#8377; per gram)</label><input id="rateIn" type="number" inputmode="decimal" value="' + (c.rate || '') + '" placeholder="e.g. 13060"></div>' +
+    '<button onclick="setRate()">Update</button></div>' +
+    '<div class="muted" style="margin:8px 0">' + info + '</div>' +
+    '<div class="row"><div style="flex:1">' + citySelect('citySel', b.city || 'Pune', 'changeCity(this.value)') + '</div>' +
+    '<button class="small soft" onclick="refreshRate()">Refresh</button></div></div>';
+}
+
 function calc(b) {
-  var rate = state.rates[b.gold] || 0;
+  var rate = rateOf(b);
   var paid = 0, grams = 0, value = 0;
   var rows = b.purchases.map(function (p) {
     var g = p.rate > 0 ? p.amount / p.rate : 0;
@@ -186,9 +233,7 @@ function renderHome() {
        '<div style="text-align:center"><div class="lbl">Gold bought</div><b>' + c.grams.toFixed(3) + ' g</b></div>' +
        '<div style="text-align:right"><div class="lbl">Months paid</div><b>' + b.purchases.length + ' of ' + b.months + '</b></div></div></div>';
 
-  h += '<div class="card"><div class="row" style="align-items:flex-end"><div style="flex:1" class="f"><label for="rateIn">Today\'s ' + b.gold +
-       ' rate (&#8377; per gram)</label><input id="rateIn" type="number" inputmode="decimal" value="' + (c.rate || '') + '" placeholder="e.g. 13060"></div>' +
-       '<button onclick="setRate()">Update</button></div></div>';
+  h += rateCard(b, c);
 
   h += '<div class="row between" style="margin:14px 4px 8px"><h2>My purchases</h2><span class="muted">&#8377;' + fmt(b.amount) + ' / month &middot; ' + b.gold + '</span></div>';
 
@@ -227,6 +272,7 @@ function renderCreate() {
     '<div><label style="font-size:13px;font-weight:600">Gold type</label><div class="seg">' +
       '<button class="' + (d.gold === '22K' ? 'on' : '') + '" onclick="setGold(\'22K\')">22K</button>' +
       '<button class="' + (d.gold === '24K' ? 'on' : '') + '" onclick="setGold(\'24K\')">24K</button></div></div>' +
+    '<div><label style="font-size:13px;font-weight:600">City (for gold rate)</label>' + citySelect('cityIn', d.city, 'draft.city=this.value') + '</div>' +
     '<div><label style="font-size:13px;font-weight:600">Fixed monthly installment (&#8377;)</label>' +
       '<input type="number" inputmode="decimal" style="height:52px;font-size:20px;font-weight:700" value="' + esc(d.amount) + '" placeholder="e.g. 10000" oninput="draft.amount=this.value;updTotal()"></div>' +
     '<div><label style="font-size:13px;font-weight:600">Total months to pay</label><div class="stepper">' +
@@ -283,13 +329,18 @@ function render() {
 }
 
 /* ---------- actions ---------- */
-function pick(id) { state.sel = id; save(); render(); }
+function pick(id) { state.sel = id; save(); render(); var b = cur(); if (b) { fetchCityRate(b.city || 'Pune', false); render(); } }
 function setRate() {
   var b = cur(); if (!b) return;
   var r = num(document.getElementById('rateIn').value);
   if (r <= 0) { alert('Enter today\'s rate per gram'); return; }
-  state.rates[b.gold] = r; save(); render();
+  var auto = autoRate(b);
+  b.rateOverride = (auto && Math.round(r) === Math.round(auto)) ? 0 : r;
+  save(); render();
 }
+function useAuto() { var b = cur(); b.rateOverride = 0; save(); render(); }
+function changeCity(v) { var b = cur(); b.city = v; save(); fetchCityRate(v, false); render(); }
+function refreshRate() { var b = cur(); fetchCityRate(b.city || 'Pune', true); render(); }
 function edit(i, f, v) {
   var b = cur(); var p = b.purchases[i];
   p[f] = (f === 'date') ? v : num(v);
@@ -297,7 +348,7 @@ function edit(i, f, v) {
 }
 function addPurchase() {
   var b = cur();
-  b.purchases.push({ date: todayStr(), amount: b.amount, rate: state.rates[b.gold] || 0 });
+  b.purchases.push({ date: todayStr(), amount: b.amount, rate: rateOf(b) });
   save(); render();
 }
 function toggleEdit(i) { editing = (editing === i) ? -1 : i; render(); }
@@ -325,11 +376,12 @@ function createBhishi() {
   var b = {
     id: Date.now().toString(36),
     name: draft.name.trim() || 'My Gold Bhishi',
-    gold: draft.gold, amount: amt, months: draft.months, start: draft.start,
+    gold: draft.gold, city: draft.city, amount: amt, months: draft.months, start: draft.start,
     purchases: []
   };
   state.bhishis.push(b); state.sel = b.id; save();
   view = 'home'; render();
+  fetchCityRate(b.city, false); render();
 }
 function exportData() {
   var s = JSON.stringify(state);
@@ -371,6 +423,17 @@ window.onPulled = function (remote, em) {
   if (view === 'signin') view = 'home';
   render();
 };
+window.onRate = function (city, r22, r24, date) {
+  state.cityRates = state.cityRates || {};
+  state.cityRates[city] = { '22K': num(r22), '24K': num(r24), date: date, at: Date.now() };
+  delete rateStatus[city];
+  save(true);
+  if (view === 'home' && editing === -1) render();
+};
+window.onRateError = function (city, msg) {
+  rateStatus[city] = msg || 'no connection';
+  if (view === 'home' && editing === -1) render();
+};
 window.onPushed = function () {
   var d = new Date();
   syncMsg = 'Saved to Google Drive at ' + d.getHours() + ':' + ('0' + d.getMinutes()).slice(-2);
@@ -390,6 +453,7 @@ if (window.Android) {
 }
 render();
 if (window.Android && email) { Android.pull(); }
+(function () { var b = cur(); if (b) { fetchCityRate(b.city || 'Pune', false); render(); } })();
 </script>
 </body>
 </html>

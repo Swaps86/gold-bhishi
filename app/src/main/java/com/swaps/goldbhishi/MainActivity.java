@@ -219,6 +219,33 @@ public class MainActivity extends Activity {
         }
     }
 
+    /* ---------------- City gold rate ---------------- */
+
+    private static String slugFor(String city) {
+        String c = city.trim().toLowerCase(java.util.Locale.ROOT).replace(" ", "-");
+        if (c.equals("bengaluru")) return "bangalore";
+        return c;
+    }
+
+    private String httpGetPage(String url) throws Exception {
+        HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
+        c.setRequestMethod("GET");
+        c.setConnectTimeout(15000);
+        c.setReadTimeout(20000);
+        c.setRequestProperty("User-Agent",
+                "Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36");
+        c.setRequestProperty("Accept-Language", "en-IN,en;q=0.9");
+        int code = c.getResponseCode();
+        if (code >= 400) throw new Exception("page error " + code);
+        InputStream in = c.getInputStream();
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        byte[] buf = new byte[8192];
+        int n;
+        while ((n = in.read(buf)) > 0 && out.size() < 3000000) out.write(buf, 0, n);
+        in.close();
+        return new String(out.toByteArray(), "UTF-8");
+    }
+
     /* ---------------- Functions the web page can call ---------------- */
 
     class Bridge {
@@ -251,6 +278,32 @@ public class MainActivity extends Activity {
         public void push(String json) {
             pendingPush = json;
             runOnUiThread(() -> authorize("push"));
+        }
+
+        @JavascriptInterface
+        public void fetchRate(final String city) {
+            new Thread(() -> {
+                String slug = slugFor(city);
+                String[] urls = {
+                        "https://bb.bankbazaar.com/gold-rate-" + slug + ".html",
+                        "https://www.bankbazaar.com/gold-rate-" + slug + ".html"
+                };
+                String lastErr = "no page";
+                for (String u : urls) {
+                    try {
+                        RateParser.Result r = RateParser.parse(httpGetPage(u));
+                        if (r != null) {
+                            js("onRate", city, String.valueOf(r.r22), String.valueOf(r.r24),
+                                    r.date == null ? "" : r.date);
+                            return;
+                        }
+                        lastErr = "rate not found on page";
+                    } catch (Exception e) {
+                        lastErr = String.valueOf(e.getMessage());
+                    }
+                }
+                js("onRateError", city, lastErr);
+            }).start();
         }
 
         @JavascriptInterface
