@@ -1,0 +1,296 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Gold Bhishi</title>
+<style>
+:root{--bg:#FFF9EC;--ink:#2B2113;--muted:#6B5A3A;--gold:#8A5F00;--soft:#F3E6BF;--line:#E8DBB8;--edge:#CDB985;--red:#A3261A;--green:#2F6B2F}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{font-family:system-ui,-apple-system,Roboto,sans-serif;background:var(--bg);color:var(--ink);font-size:16px}
+#app{display:flex;flex-direction:column;height:100%}
+#main{flex:1;overflow-y:auto;padding:16px 16px 24px}
+h1{margin:0;font-size:22px;letter-spacing:-.01em}
+h2{margin:0;font-size:15px}
+.muted{color:var(--muted);font-size:12px}
+.row{display:flex;align-items:center;gap:10px}
+.between{justify-content:space-between}
+.col{display:flex;flex-direction:column;gap:6px}
+.card{background:#fff;border:1px solid var(--line);border-radius:14px;padding:12px 14px;margin-bottom:10px}
+.dark{background:#2B2113;color:#FFF9EC;border-radius:16px;padding:16px;margin-bottom:12px}
+.dark .lbl{font-size:12px;color:#E5D3A8}
+.big{font-size:30px;font-weight:700;letter-spacing:-.02em}
+.grid4{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.f label{display:block;font-size:11px;color:var(--muted);margin-bottom:2px}
+input,textarea{width:100%;border:1px solid var(--edge);border-radius:10px;padding:0 12px;font-size:16px;color:var(--ink);background:#fff;font-family:inherit}
+input{height:44px}
+textarea{padding:10px 12px;height:120px}
+button{font-family:inherit;font-size:15px;font-weight:700;border:0;border-radius:12px;height:48px;padding:0 18px;background:var(--gold);color:#fff}
+button.ghost{background:transparent;color:#6B4800;border:2px dashed var(--gold);width:100%}
+button.soft{background:var(--soft);color:#3F2C00}
+button.small{height:36px;font-size:13px;padding:0 12px}
+button.danger{background:transparent;color:var(--red);height:36px;font-size:13px}
+.seg{display:flex;gap:10px}
+.seg button{flex:1;height:52px;font-size:17px;background:#fff;color:#4A3D27;border:1px solid var(--edge)}
+.seg button.on{background:var(--soft);color:#3F2C00;border:2px solid var(--gold)}
+.chips{display:flex;gap:8px;overflow-x:auto;margin-bottom:12px}
+.chips button{height:36px;font-size:13px;white-space:nowrap;background:#fff;color:#4A3D27;border:1px solid var(--edge)}
+.chips button.on{background:var(--soft);border:2px solid var(--gold);color:#3F2C00}
+.loss{color:var(--red)}.gain{color:var(--green)}
+.dark .loss{color:#FFB4A8}.dark .gain{color:#9FE0A0}
+.badge{width:28px;height:28px;border-radius:14px;background:var(--soft);color:#5E4300;font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center}
+nav{display:flex;border-top:1px solid var(--line);background:#fff;height:64px}
+nav button{flex:1;height:64px;border-radius:0;background:#fff;color:var(--muted);font-size:13px;font-weight:600}
+nav button.on{color:#6B4800;font-weight:700;box-shadow:inset 0 3px 0 var(--gold)}
+.pad{height:12px}
+.stepper{display:flex;align-items:center;justify-content:space-between;height:56px;border:1px solid var(--edge);border-radius:10px;background:#fff;padding:0 6px}
+.stepper button{width:44px;height:44px;padding:0;font-size:24px;border-radius:8px}
+.empty{text-align:center;padding:48px 16px}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="main"></div>
+  <nav>
+    <button id="navHome" onclick="go('home')">Gold Bhishi</button>
+    <button id="navBackup" onclick="go('backup')">Backup</button>
+  </nav>
+</div>
+
+<script>
+var state = { bhishis: [], rates: { '22K': 0, '24K': 0 }, sel: null };
+var view = 'home';
+var draft = null;
+
+function todayStr() {
+  var d = new Date();
+  var m = ('0' + (d.getMonth() + 1)).slice(-2);
+  var day = ('0' + d.getDate()).slice(-2);
+  return d.getFullYear() + '-' + m + '-' + day;
+}
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+  });
+}
+function num(v) { var n = parseFloat(String(v).replace(/,/g, '')); return isFinite(n) ? n : 0; }
+function fmt(n) { return Math.round(n).toLocaleString('en-IN'); }
+function fmtDate(s) {
+  if (!s) return '-';
+  var p = s.split('-');
+  var mon = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  return parseInt(p[2], 10) + ' ' + mon[parseInt(p[1], 10) - 1] + ' ' + p[0];
+}
+function newDraft() {
+  return { name: 'My Gold Bhishi', gold: '22K', amount: '', months: 12, start: todayStr() };
+}
+
+function load() {
+  try {
+    var s = window.Android ? Android.load() : localStorage.getItem('gb');
+    if (s) {
+      var o = JSON.parse(s);
+      if (o && o.bhishis) { state = o; }
+    }
+  } catch (e) {}
+}
+function save() {
+  try {
+    var s = JSON.stringify(state);
+    if (window.Android) { Android.save(s); } else { localStorage.setItem('gb', s); }
+  } catch (e) {}
+}
+
+function cur() {
+  for (var i = 0; i < state.bhishis.length; i++) {
+    if (state.bhishis[i].id === state.sel) return state.bhishis[i];
+  }
+  return state.bhishis[0] || null;
+}
+
+function calc(b) {
+  var rate = state.rates[b.gold] || 0;
+  var paid = 0, grams = 0, value = 0;
+  var rows = b.purchases.map(function (p) {
+    var g = p.rate > 0 ? p.amount / p.rate : 0;
+    var v = rate > 0 ? g * rate : 0;
+    paid += p.amount; grams += g; value += v;
+    return { g: g, v: v, pl: rate > 0 && g > 0 ? v - p.amount : null };
+  });
+  return { rate: rate, paid: paid, grams: grams, value: value, rows: rows,
+           pl: rate > 0 && grams > 0 ? value - paid : null };
+}
+
+function plHtml(pl, withPct, paid) {
+  if (pl === null) return '<span class="muted">-</span>';
+  var up = pl >= 0;
+  var s = (up ? '&#9650; ' : '&#9660; ') + '&#8377;' + fmt(Math.abs(pl));
+  if (withPct && paid > 0) s += ' (' + (Math.abs(pl) / paid * 100).toFixed(1) + '%)';
+  return '<span class="' + (up ? 'gain' : 'loss') + '">' + s + '</span>';
+}
+
+function go(v) { view = v; if (v === 'create') draft = newDraft(); render(); }
+window.goBack = function () {
+  if (view !== 'home') { view = 'home'; render(); return true; }
+  return false;
+};
+
+/* ---------- screens ---------- */
+function renderHome() {
+  var b = cur();
+  if (!b) {
+    return '<div class="empty"><h1>Gold Bhishi</h1><p class="muted" style="font-size:15px">No Gold Bhishi yet.</p>' +
+           '<button onclick="go(\'create\')">Create Gold Bhishi</button></div>';
+  }
+  state.sel = b.id;
+  var c = calc(b);
+  var h = '<div class="row between" style="margin-bottom:12px"><h1>Gold Bhishi</h1>' +
+          '<button class="small" onclick="go(\'create\')" aria-label="Create new Gold Bhishi">+ New</button></div>';
+
+  if (state.bhishis.length > 1) {
+    h += '<div class="chips">';
+    state.bhishis.forEach(function (x) {
+      h += '<button class="' + (x.id === b.id ? 'on' : '') + '" onclick="pick(\'' + x.id + '\')">' + esc(x.name) + ' &middot; ' + x.gold + '</button>';
+    });
+    h += '</div>';
+  }
+
+  h += '<div class="dark"><div class="row between"><div><div class="lbl">Value today</div><div class="big">' +
+       (c.rate > 0 ? '&#8377;' + fmt(c.value) : '-') + '</div></div>' +
+       '<div style="text-align:right"><div class="lbl">Profit / Loss</div><div style="font-size:18px;font-weight:700">' +
+       plHtml(c.pl, true, c.paid) + '</div></div></div>' +
+       '<div style="height:1px;background:#4A3D27;margin:12px 0"></div>' +
+       '<div class="row between"><div><div class="lbl">Total paid</div><b>&#8377;' + fmt(c.paid) + '</b></div>' +
+       '<div style="text-align:center"><div class="lbl">Gold bought</div><b>' + c.grams.toFixed(3) + ' g</b></div>' +
+       '<div style="text-align:right"><div class="lbl">Months paid</div><b>' + b.purchases.length + ' of ' + b.months + '</b></div></div></div>';
+
+  h += '<div class="card"><div class="row" style="align-items:flex-end"><div style="flex:1" class="f"><label for="rateIn">Today\'s ' + b.gold +
+       ' rate (&#8377; per gram)</label><input id="rateIn" type="number" inputmode="decimal" value="' + (c.rate || '') + '" placeholder="e.g. 13060"></div>' +
+       '<button onclick="setRate()">Update</button></div></div>';
+
+  h += '<div class="row between" style="margin:14px 4px 8px"><h2>My purchases</h2><span class="muted">&#8377;' + fmt(b.amount) + ' / month &middot; ' + b.gold + '</span></div>';
+
+  b.purchases.forEach(function (p, i) {
+    var r = c.rows[i];
+    h += '<div class="card"><div class="row between" style="margin-bottom:10px"><div class="row"><div class="badge">' + (i + 1) + '</div>' +
+         '<b>' + fmtDate(p.date) + '</b></div><b>' + plHtml(r.pl, false, 0) + '</b></div>' +
+         '<div class="grid4 f">' +
+         '<div><label>Date</label><input type="date" value="' + esc(p.date) + '" onchange="edit(' + i + ',\'date\',this.value)"></div>' +
+         '<div><label>Paid (&#8377;)</label><input type="number" inputmode="decimal" value="' + p.amount + '" onchange="edit(' + i + ',\'amount\',this.value)"></div>' +
+         '<div><label>Rate that day (&#8377;/g)</label><input type="number" inputmode="decimal" value="' + (p.rate || '') + '" placeholder="enter rate" onchange="edit(' + i + ',\'rate\',this.value)"></div>' +
+         '<div><label>Grams / Value today</label><div style="padding-top:10px"><b>' + r.g.toFixed(3) + ' g</b> &middot; ' + (c.rate > 0 ? '&#8377;' + fmt(r.v) : '-') + '</div></div>' +
+         '</div><div style="text-align:right"><button class="danger" onclick="delPurchase(' + i + ')">Delete</button></div></div>';
+  });
+
+  h += '<button class="ghost" onclick="addPurchase()">+ Add purchase</button><div class="pad"></div>' +
+       '<div style="text-align:center"><button class="danger" onclick="delBhishi()">Delete this Gold Bhishi</button></div>';
+  return h;
+}
+
+function renderCreate() {
+  var d = draft;
+  var total = num(d.amount) * d.months;
+  return '<div class="row" style="margin-bottom:12px"><button class="small soft" onclick="go(\'home\')" aria-label="Back">&larr; Back</button><h1>Create Gold Bhishi</h1></div>' +
+    '<div class="col f" style="gap:16px">' +
+    '<div><label style="font-size:13px;font-weight:600">Bhishi name</label><input type="text" value="' + esc(d.name) + '" oninput="draft.name=this.value"></div>' +
+    '<div><label style="font-size:13px;font-weight:600">Gold type</label><div class="seg">' +
+      '<button class="' + (d.gold === '22K' ? 'on' : '') + '" onclick="setGold(\'22K\')">22K</button>' +
+      '<button class="' + (d.gold === '24K' ? 'on' : '') + '" onclick="setGold(\'24K\')">24K</button></div></div>' +
+    '<div><label style="font-size:13px;font-weight:600">Fixed monthly installment (&#8377;)</label>' +
+      '<input type="number" inputmode="decimal" style="height:52px;font-size:20px;font-weight:700" value="' + esc(d.amount) + '" placeholder="e.g. 10000" oninput="draft.amount=this.value;updTotal()"></div>' +
+    '<div><label style="font-size:13px;font-weight:600">Total months to pay</label><div class="stepper">' +
+      '<button class="soft" onclick="months(-1)" aria-label="Decrease months">&minus;</button><b style="font-size:20px">' + d.months + ' months</b>' +
+      '<button class="soft" onclick="months(1)" aria-label="Increase months">+</button></div></div>' +
+    '<div><label style="font-size:13px;font-weight:600">First installment date</label><input type="date" value="' + esc(d.start) + '" oninput="draft.start=this.value"></div>' +
+    '<div class="dark" style="margin:0"><div class="lbl">You will pay in total</div><div class="big" style="font-size:24px" id="totalOut">&#8377;' + fmt(total) + '</div>' +
+      '<div class="lbl" id="totalSub">&#8377;' + fmt(num(d.amount)) + ' &times; ' + d.months + ' &middot; ' + d.gold + ' gold</div></div>' +
+    '<button style="height:54px;font-size:17px" onclick="createBhishi()">Create Gold Bhishi</button></div>';
+}
+
+function renderBackup() {
+  return '<h1 style="margin-bottom:12px">Backup</h1>' +
+    '<div class="card"><h2>Save a backup</h2><p class="muted" style="font-size:13px;line-height:1.5">Tap the button, then choose Drive, Gmail or WhatsApp. Keep this safe &mdash; use it on a new phone.</p>' +
+    '<button onclick="exportData()">Share backup</button></div>' +
+    '<div class="card"><h2>Restore from backup</h2><p class="muted" style="font-size:13px;line-height:1.5">Paste the backup text here. This replaces the data on this phone.</p>' +
+    '<textarea id="imp" placeholder="Paste backup text"></textarea><div class="pad"></div><button onclick="importData()">Restore</button></div>' +
+    '<p class="muted" style="line-height:1.5">Automatic Google Drive sync with Gmail login is the next update.</p>';
+}
+
+function render() {
+  var m = document.getElementById('main');
+  if (view === 'create') m.innerHTML = renderCreate();
+  else if (view === 'backup') m.innerHTML = renderBackup();
+  else m.innerHTML = renderHome();
+  document.getElementById('navHome').className = view === 'backup' ? '' : 'on';
+  document.getElementById('navBackup').className = view === 'backup' ? 'on' : '';
+}
+
+/* ---------- actions ---------- */
+function pick(id) { state.sel = id; save(); render(); }
+function setRate() {
+  var b = cur(); if (!b) return;
+  var r = num(document.getElementById('rateIn').value);
+  if (r <= 0) { alert('Enter today\'s rate per gram'); return; }
+  state.rates[b.gold] = r; save(); render();
+}
+function edit(i, f, v) {
+  var b = cur(); var p = b.purchases[i];
+  p[f] = (f === 'date') ? v : num(v);
+  save(); render();
+}
+function addPurchase() {
+  var b = cur();
+  b.purchases.push({ date: todayStr(), amount: b.amount, rate: state.rates[b.gold] || 0 });
+  save(); render();
+}
+function delPurchase(i) {
+  if (!confirm('Delete this purchase?')) return;
+  cur().purchases.splice(i, 1); save(); render();
+}
+function delBhishi() {
+  var b = cur();
+  if (!confirm('Delete "' + b.name + '" and all its purchases?')) return;
+  state.bhishis = state.bhishis.filter(function (x) { return x.id !== b.id; });
+  state.sel = state.bhishis.length ? state.bhishis[0].id : null;
+  save(); render();
+}
+function setGold(g) { draft.gold = g; render(); }
+function months(d) { draft.months = Math.max(1, Math.min(60, draft.months + d)); render(); }
+function updTotal() {
+  document.getElementById('totalOut').innerHTML = '&#8377;' + fmt(num(draft.amount) * draft.months);
+  document.getElementById('totalSub').innerHTML = '&#8377;' + fmt(num(draft.amount)) + ' &times; ' + draft.months + ' &middot; ' + draft.gold + ' gold';
+}
+function createBhishi() {
+  var amt = num(draft.amount);
+  if (amt <= 0) { alert('Enter the monthly installment amount'); return; }
+  var b = {
+    id: Date.now().toString(36),
+    name: draft.name.trim() || 'My Gold Bhishi',
+    gold: draft.gold, amount: amt, months: draft.months, start: draft.start,
+    purchases: []
+  };
+  state.bhishis.push(b); state.sel = b.id; save();
+  view = 'home'; render();
+}
+function exportData() {
+  var s = JSON.stringify(state);
+  if (window.Android) Android.share(s);
+  else { try { navigator.clipboard.writeText(s); alert('Backup copied'); } catch (e) { prompt('Copy backup', s); } }
+}
+function importData() {
+  var t = document.getElementById('imp').value.trim();
+  try {
+    var o = JSON.parse(t);
+    if (!o || !Array.isArray(o.bhishis)) throw new Error('bad');
+    if (!confirm('Replace all data on this phone with this backup?')) return;
+    state = o; if (!state.rates) state.rates = { '22K': 0, '24K': 0 };
+    save(); view = 'home'; render(); alert('Restored');
+  } catch (e) { alert('This is not a valid backup'); }
+}
+
+load();
+render();
+</script>
+</body>
+</html>
