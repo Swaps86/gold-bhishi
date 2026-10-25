@@ -45,6 +45,17 @@ nav button{flex:1;height:64px;border-radius:0;background:#fff;color:var(--muted)
 nav button.on{color:#6B4800;font-weight:700}
 select{width:100%;height:44px;border:1px solid var(--edge);border-radius:10px;padding:0 10px;font-size:16px;background:#fff;color:var(--ink);font-family:inherit}
 .pad{height:12px}
+.grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+button.acc{height:auto;min-height:132px;background:#fff;color:var(--ink);border:1px solid var(--line);border-radius:14px;padding:14px;text-align:left;font-weight:400;display:flex;flex-direction:column;align-items:stretch;gap:6px}
+button.acc .tag{align-self:flex-start;font-size:12px;font-weight:700;color:#3F2C00;background:var(--soft);border-radius:8px;padding:2px 8px}
+button.acc .tag.blue{color:#1F4A5A;background:#D8ECF3}
+button.acc .nm{font-size:16px;font-weight:700}
+button.acc .sub{font-size:12px;color:var(--muted)}
+button.acc .val{margin-top:auto;font-size:18px;font-weight:700}
+button.newbox{height:auto;min-height:104px;background:transparent;border:2px dashed var(--gold);color:#6B4800;border-radius:14px;padding:14px;text-align:left;display:flex;flex-direction:column;align-items:flex-start;gap:6px}
+button.newbox.blue{border-color:#1F6A86;color:#1F4A5A}
+button.newbox .sub{font-size:12px;font-weight:400;color:var(--muted)}
+.hr{height:1px;background:var(--line);margin:14px 0 10px}
 .stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px}
 .stats .l{font-size:11px;color:var(--muted)}
 .stats b{font-size:13px}
@@ -59,13 +70,14 @@ select{width:100%;height:44px;border:1px solid var(--edge);border-radius:10px;pa
 <div id="app">
   <div id="main"></div>
   <nav>
-    <button id="navHome" onclick="go('home')"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 15l2-8h8l2 8z"/><path d="M3 19h18"/></svg>Gold Bhishi</button>
+    <button id="navHome" onclick="go('home')"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 11l8-7 8 7"/><path d="M6 10v10h12V10"/></svg>Home</button>
     <button id="navBackup" onclick="go('backup')"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 18a4 4 0 010-8 5 5 0 019.6-1A4.5 4.5 0 0117 18z"/></svg>Backup</button>
   </nav>
 </div>
 
 <script>
-var state = { bhishis: [], rates: { '22K': 0, '24K': 0 }, sel: null };
+var state = { bhishis: [], lends: [], rates: { '22K': 0, '24K': 0 }, sel: null, selLend: null };
+var lendDraft = null;
 var view = 'home';
 var draft = null;
 var editing = -1;
@@ -94,8 +106,23 @@ function fmtDate(s) {
   var mon = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   return parseInt(p[2], 10) + ' ' + mon[parseInt(p[1], 10) - 1] + ' ' + p[0];
 }
+function nextBhishiName() {
+  var mx = 0;
+  state.bhishis.forEach(function (b) {
+    var m = /^Gold Bhishi (\d+)$/.exec(b.name || '');
+    if (m) mx = Math.max(mx, parseInt(m[1], 10));
+  });
+  return 'Gold Bhishi ' + (Math.max(mx, state.bhishis.length) + 1);
+}
+function newLendDraft() { return { name: '', amount: '', date: todayStr(), rate: '' }; }
+function hasData(o) { return !!(o && ((o.bhishis && o.bhishis.length) || (o.lends && o.lends.length))); }
+function fixState() {
+  if (!state.bhishis) state.bhishis = [];
+  if (!state.lends) state.lends = [];
+  if (!state.rates) state.rates = { '22K': 0, '24K': 0 };
+}
 function newDraft() {
-  return { name: 'My Gold Bhishi', city: 'Pune', gold: '22K', amount: '', months: 12, start: todayStr() };
+  return { name: nextBhishiName(), city: 'Pune', gold: '22K', amount: '', months: 12, start: todayStr() };
 }
 
 function load() {
@@ -103,7 +130,7 @@ function load() {
     var s = window.Android ? Android.load() : localStorage.getItem('gb');
     if (s) {
       var o = JSON.parse(s);
-      if (o && o.bhishis) { state = o; }
+      if (o && (o.bhishis || o.lends)) { state = o; fixState(); }
     }
   } catch (e) {}
 }
@@ -129,6 +156,13 @@ function cur() {
     if (state.bhishis[i].id === state.sel) return state.bhishis[i];
   }
   return state.bhishis[0] || null;
+}
+
+function curLend() {
+  for (var i = 0; i < state.lends.length; i++) {
+    if (state.lends[i].id === state.selLend) return state.lends[i];
+  }
+  return null;
 }
 
 function autoRate(b) {
@@ -197,32 +231,30 @@ function plHtml(pl, withPct, paid) {
   return '<span class="' + (up ? 'gain' : 'loss') + '">' + s + '</span>';
 }
 
-function go(v) { editing = -1; view = v; if (v === 'create') draft = newDraft(); render(); }
+function go(v) {
+  editing = -1; view = v;
+  if (v === 'create') draft = newDraft();
+  if (v === 'createLend') lendDraft = newLendDraft();
+  render();
+}
 window.goBack = function () {
   if (view !== 'home') { view = 'home'; render(); return true; }
   return false;
 };
+function openGold(id) {
+  state.sel = id; editing = -1; view = 'gold'; render();
+  var b = cur(); if (b) { fetchCityRate(b.city || 'Pune', false); }
+}
+function openLend(id) { state.selLend = id; view = 'lend'; render(); }
 
 /* ---------- screens ---------- */
-function renderHome() {
+function renderGold() {
   var b = cur();
-  if (!b) {
-    return '<div class="empty"><h1>Gold Bhishi</h1><p class="muted" style="font-size:15px">No Gold Bhishi yet.</p>' +
-           '<button onclick="go(\'create\')">Create Gold Bhishi</button></div>';
-  }
+  if (!b) { view = 'home'; return renderHome(); }
   state.sel = b.id;
   var c = calc(b);
-  var h = '<div class="row between" style="margin-bottom:12px"><div class="row"><div class="logo"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#FFF9EC" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 15l2-8h8l2 8z"/><path d="M3 19h18"/></svg></div>' +
-          '<div><h1>Gold Bhishi</h1><div class="muted" style="color:#2F6B2F;font-size:11px">' + (email ? 'Saved to Google Drive &middot; ' + esc(email) : 'Saved on this phone') + '</div></div></div>' +
-          '<button class="plus" onclick="go(\'create\')" aria-label="Create new Gold Bhishi"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button></div>';
-
-  if (state.bhishis.length > 1) {
-    h += '<div class="chips">';
-    state.bhishis.forEach(function (x) {
-      h += '<button class="' + (x.id === b.id ? 'on' : '') + '" onclick="pick(\'' + x.id + '\')">' + esc(x.name) + ' &middot; ' + x.gold + '</button>';
-    });
-    h += '</div>';
-  }
+  var h = '<div class="row" style="margin-bottom:12px"><button class="small soft" onclick="go(\'home\')" aria-label="Back">&larr; Back</button>' +
+          '<div><h1>' + esc(b.name) + '</h1><div class="muted" style="color:#2F6B2F;font-size:11px">' + b.gold + ' gold &middot; ' + esc(b.city || '') + (email ? ' &middot; Saved to Google Drive' : ' &middot; Saved on this phone') + '</div></div></div>';
 
   h += '<div class="dark"><div class="row between"><div><div class="lbl">Value today</div><div class="big">' +
        (c.rate > 0 ? '&#8377;' + fmt(c.value) : '-') + '</div></div>' +
@@ -260,6 +292,95 @@ function renderHome() {
 
   h += '<button class="ghost" onclick="addPurchase()">+ Add purchase</button><div class="pad"></div>' +
        '<div style="text-align:center"><button class="danger" onclick="delBhishi()">Delete this Gold Bhishi</button></div>';
+  return h;
+}
+
+
+function lendCalc(l) {
+  var amt = l.amount || 0;
+  var start = new Date((l.date || todayStr()) + 'T00:00:00');
+  var days = Math.max(0, Math.floor((Date.now() - start.getTime()) / 86400000));
+  var interest = amt * (l.rate || 0) / 100 * days / 365;
+  var repaid = 0;
+  (l.repayments || []).forEach(function (r) { repaid += r.amount || 0; });
+  var due = Math.max(0, amt + interest - repaid);
+  return { interest: interest, repaid: repaid, due: due, days: days, done: amt > 0 && due < 0.5 };
+}
+
+function renderHome() {
+  var h = '<div class="row" style="margin-bottom:12px"><div class="logo"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#FFF9EC" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 15l2-8h8l2 8z"/><path d="M3 19h18"/></svg></div>' +
+          '<div><h1>My Accounts</h1><div class="muted" style="color:#2F6B2F;font-size:11px">' + (email ? 'Saved to Google Drive &middot; ' + esc(email) : 'Saved on this phone') + '</div></div></div>';
+
+  h += '<div class="row between" style="margin:4px 4px 10px"><h2>Your accounts</h2><span class="muted">Tap to open</span></div>';
+  if (!state.bhishis.length && !state.lends.length) {
+    h += '<div class="card muted" style="text-align:center;padding:24px 14px;font-size:14px">No accounts yet. Create one below.</div>';
+  } else {
+    h += '<div class="grid2">';
+    state.bhishis.forEach(function (b) {
+      var c = calc(b);
+      h += '<button class="acc" onclick="openGold(\'' + b.id + '\')"><span class="tag">Gold ' + b.gold + '</span>' +
+           '<span class="nm">' + esc(b.name) + '</span>' +
+           '<span class="sub">&#8377;' + fmt(b.amount) + ' / month &middot; ' + b.purchases.length + ' of ' + b.months + '</span>' +
+           '<span class="val">' + (c.rate > 0 && c.grams > 0 ? '&#8377;' + fmt(c.value) : '&#8377;' + fmt(c.paid)) + '</span>' +
+           '<span class="sub" style="font-weight:600">' + (c.pl === null ? (c.paid > 0 ? 'paid so far' : 'no purchase yet') : plHtml(c.pl, false, 0)) + '</span></button>';
+    });
+    state.lends.forEach(function (l) {
+      var c = lendCalc(l);
+      h += '<button class="acc" onclick="openLend(\'' + l.id + '\')"><span class="tag blue">Lend money</span>' +
+           '<span class="nm">' + esc(l.name) + '</span>' +
+           '<span class="sub">Lent on ' + fmtDate(l.date) + '</span>' +
+           '<span class="val">&#8377;' + fmt(c.due) + '</span>' +
+           '<span class="sub" style="font-weight:600">' + (c.done ? 'fully received' : 'to receive') + '</span></button>';
+    });
+    h += '</div>';
+  }
+
+  h += '<div class="hr"></div><div class="row between" style="margin:0 4px 10px"><h2>Create new</h2><span class="muted">Pick a form</span></div>' +
+       '<div class="grid2">' +
+       '<button class="newbox" onclick="go(\'create\')"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#6B4800" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span>Gold Bhishi Form</span><span class="sub">22K / 24K, monthly installment</span></button>' +
+       '<button class="newbox blue" onclick="go(\'createLend\')"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#1F4A5A" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span>Lend Money Form</span><span class="sub">Money given to a person</span></button></div>';
+  return h;
+}
+
+function renderCreateLend() {
+  var d = lendDraft;
+  return '<div class="row" style="margin-bottom:12px"><button class="small soft" onclick="go(\'home\')" aria-label="Back">&larr; Back</button><h1>Lend Money</h1></div>' +
+    '<div class="col f" style="gap:16px">' +
+    '<div><label style="font-size:13px;font-weight:600">Account name (person)</label><input type="text" value="' + esc(d.name) + '" placeholder="e.g. Sandeep Account" oninput="lendDraft.name=this.value"></div>' +
+    '<div><label style="font-size:13px;font-weight:600">Amount lent (&#8377;)</label><input type="number" inputmode="decimal" style="height:52px;font-size:20px;font-weight:700" value="' + esc(d.amount) + '" placeholder="e.g. 50000" oninput="lendDraft.amount=this.value"></div>' +
+    '<div><label style="font-size:13px;font-weight:600">Date lent</label><input type="date" value="' + esc(d.date) + '" oninput="lendDraft.date=this.value"></div>' +
+    '<div><label style="font-size:13px;font-weight:600">Interest per year (%) &mdash; leave empty if none</label><input type="number" inputmode="decimal" value="' + esc(d.rate) + '" placeholder="e.g. 12" oninput="lendDraft.rate=this.value"></div>' +
+    '<button style="height:54px;font-size:17px" onclick="createLend()">Create Lend Account</button></div>';
+}
+
+function renderLend() {
+  var l = curLend();
+  if (!l) { view = 'home'; return renderHome(); }
+  var c = lendCalc(l);
+  var h = '<div class="row" style="margin-bottom:12px"><button class="small soft" onclick="go(\'home\')" aria-label="Back">&larr; Back</button>' +
+          '<div><h1>' + esc(l.name) + '</h1><div class="muted" style="font-size:11px">Lent on ' + fmtDate(l.date) + (l.rate > 0 ? ' &middot; ' + l.rate + '% per year' : ' &middot; no interest') + '</div></div></div>';
+  h += '<div class="dark"><div class="row between"><div><div class="lbl">' + (c.done ? 'Fully received' : 'To receive') + '</div><div class="big">&#8377;' + fmt(c.due) + '</div></div>' +
+       '<div style="text-align:right"><div class="lbl">Days</div><div style="font-size:18px;font-weight:700">' + c.days + '</div></div></div>' +
+       '<div style="height:1px;background:#4A3D27;margin:12px 0"></div>' +
+       '<div class="row between"><div><div class="lbl">Lent</div><b>&#8377;' + fmt(l.amount) + '</b></div>' +
+       '<div style="text-align:center"><div class="lbl">Interest so far</div><b>&#8377;' + fmt(c.interest) + '</b></div>' +
+       '<div style="text-align:right"><div class="lbl">Received</div><b>&#8377;' + fmt(c.repaid) + '</b></div></div></div>';
+
+  h += '<div class="card"><h2 style="margin-bottom:10px">Details</h2><div class="grid4 f">' +
+       '<div><label>Name</label><input type="text" value="' + esc(l.name) + '" onchange="lendEdit(\'name\',this.value)"></div>' +
+       '<div><label>Lent (&#8377;)</label><input type="number" inputmode="decimal" value="' + l.amount + '" onchange="lendEdit(\'amount\',this.value)"></div>' +
+       '<div><label>Date lent</label><input type="date" value="' + esc(l.date) + '" onchange="lendEdit(\'date\',this.value)"></div>' +
+       '<div><label>Interest % / year</label><input type="number" inputmode="decimal" value="' + (l.rate || '') + '" placeholder="0" onchange="lendEdit(\'rate\',this.value)"></div></div>' +
+       '<p class="muted" style="margin:8px 0 0;line-height:1.4">Simple interest on the lent amount. To receive = lent + interest &minus; received.</p></div>';
+
+  h += '<div class="row between" style="margin:14px 4px 8px"><h2>Money received back</h2></div>';
+  (l.repayments || []).forEach(function (r, i) {
+    h += '<div class="card"><div class="grid4 f"><div><label>Date</label><input type="date" value="' + esc(r.date) + '" onchange="repEdit(' + i + ',\'date\',this.value)"></div>' +
+         '<div><label>Received (&#8377;)</label><input type="number" inputmode="decimal" value="' + r.amount + '" onchange="repEdit(' + i + ',\'amount\',this.value)"></div></div>' +
+         '<div style="text-align:right"><button class="danger" onclick="repDel(' + i + ')">Delete</button></div></div>';
+  });
+  h += '<button class="ghost" onclick="repAdd()">+ Add money received</button><div class="pad"></div>' +
+       '<div style="text-align:center"><button class="danger" onclick="delLend()">Delete this account</button></div>';
   return h;
 }
 
@@ -322,6 +443,9 @@ function render() {
   document.querySelector('nav').style.display = (view === 'signin') ? 'none' : 'flex';
   if (view === 'signin') m.innerHTML = renderSignIn();
   else if (view === 'create') m.innerHTML = renderCreate();
+  else if (view === 'createLend') m.innerHTML = renderCreateLend();
+  else if (view === 'gold') m.innerHTML = renderGold();
+  else if (view === 'lend') m.innerHTML = renderLend();
   else if (view === 'backup') m.innerHTML = renderBackup();
   else m.innerHTML = renderHome();
   document.getElementById('navHome').className = view === 'backup' ? '' : 'on';
@@ -329,7 +453,7 @@ function render() {
 }
 
 /* ---------- actions ---------- */
-function pick(id) { state.sel = id; save(); render(); var b = cur(); if (b) { fetchCityRate(b.city || 'Pune', false); render(); } }
+
 function setRate() {
   var b = cur(); if (!b) return;
   var r = num(document.getElementById('rateIn').value);
@@ -362,7 +486,7 @@ function delBhishi() {
   if (!confirm('Delete "' + b.name + '" and all its purchases?')) return;
   state.bhishis = state.bhishis.filter(function (x) { return x.id !== b.id; });
   state.sel = state.bhishis.length ? state.bhishis[0].id : null;
-  save(); render();
+  view = 'home'; save(); render();
 }
 function setGold(g) { draft.gold = g; render(); }
 function months(d) { draft.months = Math.max(1, Math.min(60, draft.months + d)); render(); }
@@ -375,13 +499,51 @@ function createBhishi() {
   if (amt <= 0) { alert('Enter the monthly installment amount'); return; }
   var b = {
     id: Date.now().toString(36),
-    name: draft.name.trim() || 'My Gold Bhishi',
+    name: draft.name.trim() || nextBhishiName(),
     gold: draft.gold, city: draft.city, amount: amt, months: draft.months, start: draft.start,
     purchases: []
   };
   state.bhishis.push(b); state.sel = b.id; save();
   view = 'home'; render();
-  fetchCityRate(b.city, false); render();
+  fetchCityRate(b.city, false);
+}
+function createLend() {
+  var amt = num(lendDraft.amount);
+  var nm = lendDraft.name.trim();
+  if (!nm) { alert('Enter the name of the person'); return; }
+  if (amt <= 0) { alert('Enter the amount lent'); return; }
+  var l = { id: 'l' + Date.now().toString(36), name: nm, amount: amt, date: lendDraft.date || todayStr(),
+            rate: num(lendDraft.rate), repayments: [] };
+  state.lends.push(l); state.selLend = l.id; save();
+  view = 'lend'; render();
+}
+function lendEdit(f, v) {
+  var l = curLend(); if (!l) return;
+  l[f] = (f === 'name' || f === 'date') ? v : num(v);
+  if (f === 'name' && !l.name.trim()) l.name = 'Lend account';
+  save(); render();
+}
+function repAdd() {
+  var l = curLend(); if (!l) return;
+  l.repayments = l.repayments || [];
+  var c = lendCalc(l);
+  l.repayments.push({ date: todayStr(), amount: Math.round(c.due) });
+  save(); render();
+}
+function repEdit(i, f, v) {
+  var l = curLend(); var r = l.repayments[i];
+  r[f] = (f === 'date') ? v : num(v);
+  save(); render();
+}
+function repDel(i) {
+  if (!confirm('Delete this entry?')) return;
+  curLend().repayments.splice(i, 1); save(); render();
+}
+function delLend() {
+  var l = curLend();
+  if (!confirm('Delete "' + l.name + '" and everything in it?')) return;
+  state.lends = state.lends.filter(function (x) { return x.id !== l.id; });
+  state.selLend = null; view = 'home'; save(); render();
 }
 function exportData() {
   var s = JSON.stringify(state);
@@ -392,9 +554,9 @@ function importData() {
   var t = document.getElementById('imp').value.trim();
   try {
     var o = JSON.parse(t);
-    if (!o || !Array.isArray(o.bhishis)) throw new Error('bad');
+    if (!o || (!Array.isArray(o.bhishis) && !Array.isArray(o.lends))) throw new Error('bad');
     if (!confirm('Replace all data on this phone with this backup?')) return;
-    state = o; if (!state.rates) state.rates = { '22K': 0, '24K': 0 };
+    state = o; fixState();
     save(); view = 'home'; render(); alert('Restored');
   } catch (e) { alert('This is not a valid backup'); }
 }
@@ -409,12 +571,11 @@ window.onPulled = function (remote, em) {
   var r = null;
   try { if (remote) r = JSON.parse(remote); } catch (e) {}
   var localTime = state.updatedAt || 0;
-  if (r && r.bhishis && r.bhishis.length && (!state.bhishis.length || (r.updatedAt || 0) > localTime)) {
-    state = r;
-    if (!state.rates) state.rates = { '22K': 0, '24K': 0 };
+  if (hasData(r) && (!hasData(state) || (r.updatedAt || 0) > localTime)) {
+    state = r; fixState();
     save(true);
     syncMsg = 'Restored from Google Drive';
-  } else if (state.bhishis.length) {
+  } else if (hasData(state)) {
     syncMsg = 'Saving to Google Drive...';
     Android.push(JSON.stringify(state));
   } else {
@@ -428,11 +589,11 @@ window.onRate = function (city, r22, r24, date) {
   state.cityRates[city] = { '22K': num(r22), '24K': num(r24), date: date, at: Date.now() };
   delete rateStatus[city];
   save(true);
-  if (view === 'home' && editing === -1) render();
+  if ((view === 'home' || view === 'gold') && editing === -1) render();
 };
 window.onRateError = function (city, msg) {
   rateStatus[city] = msg || 'no connection';
-  if (view === 'home' && editing === -1) render();
+  if ((view === 'home' || view === 'gold') && editing === -1) render();
 };
 window.onPushed = function () {
   var d = new Date();
@@ -453,7 +614,10 @@ if (window.Android) {
 }
 render();
 if (window.Android && email) { Android.pull(); }
-(function () { var b = cur(); if (b) { fetchCityRate(b.city || 'Pune', false); render(); } })();
+(function () {
+  var seen = {};
+  state.bhishis.forEach(function (b) { var c = b.city || 'Pune'; if (!seen[c]) { seen[c] = 1; fetchCityRate(c, false); } });
+})();
 </script>
 </body>
 </html>
