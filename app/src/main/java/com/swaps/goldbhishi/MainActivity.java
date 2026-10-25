@@ -437,7 +437,7 @@ public class MainActivity extends Activity {
             runOnUiThread(() -> {
                 KeyguardManager km = (KeyguardManager) getSystemService(Context.KEYGUARD_SERVICE);
                 Intent i = km == null ? null
-                        : km.createConfirmDeviceCredentialIntent("Gold Bhishi", "Unlock with your phone lock");
+                        : km.createConfirmDeviceCredentialIntent("Apna Khata", "Unlock with your phone lock");
                 if (i == null) {
                     js("onPhoneResult", "0");
                     return;
@@ -464,7 +464,7 @@ public class MainActivity extends Activity {
                         PrintManager pm = (PrintManager) getSystemService(Context.PRINT_SERVICE);
                         if (pm == null) return;
                         String name = title.replaceAll("[^A-Za-z0-9 _-]", "").trim();
-                        if (name.isEmpty()) name = "Gold Bhishi";
+                        if (name.isEmpty()) name = "Apna Khata";
                         PrintDocumentAdapter adapter = view.createPrintDocumentAdapter(name);
                         suppressLock = true;
                         pm.print(name, adapter, new PrintAttributes.Builder()
@@ -486,7 +486,7 @@ public class MainActivity extends Activity {
                 suppressLock = true;
                 Intent i = new Intent(Intent.ACTION_SEND);
                 i.setType("text/plain");
-                i.putExtra(Intent.EXTRA_SUBJECT, "Gold Bhishi backup");
+                i.putExtra(Intent.EXTRA_SUBJECT, "Apna Khata backup");
                 i.putExtra(Intent.EXTRA_TEXT, text);
                 startActivity(Intent.createChooser(i, "Save backup to"));
             });

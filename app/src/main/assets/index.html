@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>Gold Bhishi</title>
+<title>Apna Khata</title>
 <style>
 :root{--bg:#FFF9EC;--ink:#2B2113;--muted:#6B5A3A;--gold:#8A5F00;--soft:#F3E6BF;--line:#E8DBB8;--edge:#CDB985;--red:#A3261A;--green:#2F6B2F}
 *{box-sizing:border-box}
@@ -333,7 +333,7 @@ function lendCalc(l) {
 
 function renderHome() {
   var h = '<div class="row" style="margin-bottom:12px"><div class="logo"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#FFF9EC" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 15l2-8h8l2 8z"/><path d="M3 19h18"/></svg></div>' +
-          '<div><h1>My Accounts</h1><div class="muted" style="color:#2F6B2F;font-size:11px">' + (email ? 'Saved to Google Drive &middot; ' + esc(email) : 'Saved on this phone') + '</div></div></div>';
+          '<div><h1>Apna Khata</h1><div class="muted" style="color:#2F6B2F;font-size:11px">' + (email ? 'Saved to Google Drive &middot; ' + esc(email) : 'Saved on this phone') + '</div></div></div>';
 
   var anyAcc = state.bhishis.length || state.lends.length || state.khatas.length;
   h += '<div class="row between" style="margin:4px 4px 10px"><h2>Your accounts</h2>' + (anyAcc ? '<button class="small soft" onclick="pdfAll()" aria-label="PDF of all accounts">PDF of all</button>' : '<span class="muted">Tap to open</span>') + '</div>';
@@ -535,8 +535,8 @@ var PDF_CSS = 'body{font-family:Arial,Helvetica,sans-serif;color:#1F1A10;margin:
   '.sum .big{font-weight:700;font-size:15px;border-top:1.5px solid #1F1A10;margin-top:4px;padding-top:6px}.foot{margin-top:28px;font-size:10px;color:#555;border-top:1px solid #DDD;padding-top:6px}@page{size:A4;margin:14mm}';
 function pdfWrap(title, sub, body) {
   return '<!doctype html><html><head><meta charset="utf-8"><title>' + esc(title) + '</title><style>' + PDF_CSS + '</style></head><body>' +
-    '<div class="head"><div><div class="brand">GOLD BHISHI</div><h1>' + esc(title) + '</h1></div><div class="sub" style="text-align:right">Generated on ' + fmtDate(todayStr()) + (sub ? '<br>' + sub : '') + '</div></div>' +
-    body + '<div class="foot">Created with Gold Bhishi app</div></body></html>';
+    '<div class="head"><div><div class="brand">APNA KHATA</div><h1>' + esc(title) + '</h1></div><div class="sub" style="text-align:right">Generated on ' + fmtDate(todayStr()) + (sub ? '<br>' + sub : '') + '</div></div>' +
+    body + '<div class="foot">Created with Apna Khata app</div></body></html>';
 }
 function sendPdf(html, name) {
   if (window.Android) Android.printHtml(html, name);
@@ -611,7 +611,7 @@ function pdfAll() {
     body += '<tr class="tot"><td>Total</td><td></td><td></td><td class="r">' + rs(tl) + '</td></tr></table>';
   }
   if (!body) { alert('Nothing to print yet'); return; }
-  sendPdf(pdfWrap('All Accounts Summary', '', body), 'Gold Bhishi summary');
+  sendPdf(pdfWrap('All Accounts Summary', '', body), 'Apna Khata summary');
 }
 
 /* ---------- App lock ---------- */
@@ -632,7 +632,7 @@ function lockLogo() {
 }
 function renderLock() {
   var phone = lockMode === 'phone';
-  return '<div class="lockwrap">' + lockLogo() + '<div><h1 style="font-size:24px">Gold Bhishi</h1><p style="margin:6px 0 0;color:#4A3D27">' + (phone ? 'Unlock with your phone lock' : 'Enter your 4-digit PIN') + '</p></div>' +
+  return '<div class="lockwrap">' + lockLogo() + '<div><h1 style="font-size:24px">Apna Khata</h1><p style="margin:6px 0 0;color:#4A3D27">' + (phone ? 'Unlock with your phone lock' : 'Enter your 4-digit PIN') + '</p></div>' +
     (phone ? '<button style="margin-top:8px;min-width:200px" onclick="tryPhone(\'unlock\')">Unlock</button>'
            : dotsHtml(lockBuf.length) + keypadHtml('lockDigit', 'lockDel', 'phoneKeyUnlock')) +
     '<div class="muted" role="status" style="min-height:18px;font-size:13px">' + esc(lockMsg) + '</div>' +
@@ -765,8 +765,8 @@ function renderCreate() {
 function renderSignIn() {
   return '<div style="min-height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;text-align:center;padding:16px">' +
     '<div style="width:96px;height:96px;border-radius:48px;background:var(--gold);display:flex;align-items:center;justify-content:center"><svg width="52" height="52" viewBox="0 0 24 24" fill="none" stroke="#FFF9EC" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 15l2-8h8l2 8z"/><path d="M3 19h18"/></svg></div>' +
-    '<div><h1 style="font-size:30px">Gold Bhishi</h1><p style="margin:8px 0 0;line-height:1.5;color:#4A3D27">Track every monthly installment, gold grams and profit or loss in one place.</p></div>' +
-    '<div class="card" style="text-align:left;width:100%;line-height:1.45;font-size:14px"><p style="margin:0 0 10px">Your data is saved in your own Google Drive, in a private app folder.</p><p style="margin:0">New phone? Sign in with the same Gmail and all your Bhishi data comes back automatically.</p></div>' +
+    '<div><h1 style="font-size:30px">Apna Khata</h1><p style="margin:8px 0 0;line-height:1.5;color:#4A3D27">Gold Bhishi, Khata book, money lent and PDF statements &mdash; all in one place.</p></div>' +
+    '<div class="card" style="text-align:left;width:100%;line-height:1.45;font-size:14px"><p style="margin:0 0 10px">Your data is saved in your own Google Drive, in a private app folder.</p><p style="margin:0">New phone? Sign in with the same Gmail and all your data comes back automatically.</p></div>' +
     '<button style="width:100%;height:52px;font-size:16px" onclick="signIn()">Continue with Google</button>' +
     '<div class="muted" style="font-size:13px;min-height:18px">' + esc(syncMsg) + '</div>' +
     '<button class="danger" onclick="skipSignIn()">Skip for now</button></div>';
