@@ -41,9 +41,14 @@ button.danger{background:transparent;color:var(--red);height:36px;font-size:13px
 .dark .loss{color:#FFB4A8}.dark .gain{color:#9FE0A0}
 .badge{width:28px;height:28px;border-radius:14px;background:var(--soft);color:#5E4300;font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center}
 nav{display:flex;border-top:1px solid var(--line);background:#fff;height:64px}
-nav button{flex:1;height:64px;border-radius:0;background:#fff;color:var(--muted);font-size:13px;font-weight:600}
-nav button.on{color:#6B4800;font-weight:700;box-shadow:inset 0 3px 0 var(--gold)}
+nav button{flex:1;height:64px;border-radius:0;background:#fff;color:var(--muted);font-size:12px;font-weight:600;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px}
+nav button.on{color:#6B4800;font-weight:700}
 .pad{height:12px}
+.stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px}
+.stats .l{font-size:11px;color:var(--muted)}
+.stats b{font-size:13px}
+.logo{width:36px;height:36px;border-radius:18px;background:var(--gold);display:flex;align-items:center;justify-content:center}
+.plus{width:44px;height:44px;padding:0;border-radius:22px;display:flex;align-items:center;justify-content:center}
 .stepper{display:flex;align-items:center;justify-content:space-between;height:56px;border:1px solid var(--edge);border-radius:10px;background:#fff;padding:0 6px}
 .stepper button{width:44px;height:44px;padding:0;font-size:24px;border-radius:8px}
 .empty{text-align:center;padding:48px 16px}
@@ -53,8 +58,8 @@ nav button.on{color:#6B4800;font-weight:700;box-shadow:inset 0 3px 0 var(--gold)
 <div id="app">
   <div id="main"></div>
   <nav>
-    <button id="navHome" onclick="go('home')">Gold Bhishi</button>
-    <button id="navBackup" onclick="go('backup')">Backup</button>
+    <button id="navHome" onclick="go('home')"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 15l2-8h8l2 8z"/><path d="M3 19h18"/></svg>Gold Bhishi</button>
+    <button id="navBackup" onclick="go('backup')"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 18a4 4 0 010-8 5 5 0 019.6-1A4.5 4.5 0 0117 18z"/></svg>Backup</button>
   </nav>
 </div>
 
@@ -62,6 +67,10 @@ nav button.on{color:#6B4800;font-weight:700;box-shadow:inset 0 3px 0 var(--gold)
 var state = { bhishis: [], rates: { '22K': 0, '24K': 0 }, sel: null };
 var view = 'home';
 var draft = null;
+var editing = -1;
+var email = '';
+var syncMsg = '';
+var pushTimer = null;
 
 function todayStr() {
   var d = new Date();
@@ -95,11 +104,21 @@ function load() {
     }
   } catch (e) {}
 }
-function save() {
+function save(fromRemote) {
   try {
+    if (!fromRemote) state.updatedAt = Date.now();
     var s = JSON.stringify(state);
     if (window.Android) { Android.save(s); } else { localStorage.setItem('gb', s); }
   } catch (e) {}
+  if (!fromRemote) schedulePush();
+}
+function schedulePush() {
+  if (!window.Android || !email) return;
+  clearTimeout(pushTimer);
+  pushTimer = setTimeout(function () {
+    syncMsg = 'Saving to Google Drive...';
+    Android.push(JSON.stringify(state));
+  }, 1500);
 }
 
 function cur() {
@@ -124,13 +143,14 @@ function calc(b) {
 
 function plHtml(pl, withPct, paid) {
   if (pl === null) return '<span class="muted">-</span>';
+  if (Math.abs(pl) < 0.5) return '<span>&#8377;0</span>';
   var up = pl >= 0;
   var s = (up ? '&#9650; ' : '&#9660; ') + '&#8377;' + fmt(Math.abs(pl));
   if (withPct && paid > 0) s += ' (' + (Math.abs(pl) / paid * 100).toFixed(1) + '%)';
   return '<span class="' + (up ? 'gain' : 'loss') + '">' + s + '</span>';
 }
 
-function go(v) { view = v; if (v === 'create') draft = newDraft(); render(); }
+function go(v) { editing = -1; view = v; if (v === 'create') draft = newDraft(); render(); }
 window.goBack = function () {
   if (view !== 'home') { view = 'home'; render(); return true; }
   return false;
@@ -145,8 +165,9 @@ function renderHome() {
   }
   state.sel = b.id;
   var c = calc(b);
-  var h = '<div class="row between" style="margin-bottom:12px"><h1>Gold Bhishi</h1>' +
-          '<button class="small" onclick="go(\'create\')" aria-label="Create new Gold Bhishi">+ New</button></div>';
+  var h = '<div class="row between" style="margin-bottom:12px"><div class="row"><div class="logo"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#FFF9EC" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 15l2-8h8l2 8z"/><path d="M3 19h18"/></svg></div>' +
+          '<div><h1>Gold Bhishi</h1><div class="muted" style="color:#2F6B2F;font-size:11px">' + (email ? 'Saved to Google Drive &middot; ' + esc(email) : 'Saved on this phone') + '</div></div></div>' +
+          '<button class="plus" onclick="go(\'create\')" aria-label="Create new Gold Bhishi"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button></div>';
 
   if (state.bhishis.length > 1) {
     h += '<div class="chips">';
@@ -173,14 +194,23 @@ function renderHome() {
 
   b.purchases.forEach(function (p, i) {
     var r = c.rows[i];
-    h += '<div class="card"><div class="row between" style="margin-bottom:10px"><div class="row"><div class="badge">' + (i + 1) + '</div>' +
+    h += '<div class="card" onclick="toggleEdit(' + i + ')"><div class="row between" style="margin-bottom:10px"><div class="row"><div class="badge">' + (i + 1) + '</div>' +
          '<b>' + fmtDate(p.date) + '</b></div><b>' + plHtml(r.pl, false, 0) + '</b></div>' +
-         '<div class="grid4 f">' +
-         '<div><label>Date</label><input type="date" value="' + esc(p.date) + '" onchange="edit(' + i + ',\'date\',this.value)"></div>' +
-         '<div><label>Paid (&#8377;)</label><input type="number" inputmode="decimal" value="' + p.amount + '" onchange="edit(' + i + ',\'amount\',this.value)"></div>' +
-         '<div><label>Rate that day (&#8377;/g)</label><input type="number" inputmode="decimal" value="' + (p.rate || '') + '" placeholder="enter rate" onchange="edit(' + i + ',\'rate\',this.value)"></div>' +
-         '<div><label>Grams / Value today</label><div style="padding-top:10px"><b>' + r.g.toFixed(3) + ' g</b> &middot; ' + (c.rate > 0 ? '&#8377;' + fmt(r.v) : '-') + '</div></div>' +
-         '</div><div style="text-align:right"><button class="danger" onclick="delPurchase(' + i + ')">Delete</button></div></div>';
+         '<div class="stats">' +
+         '<div><div class="l">Paid</div><b>&#8377;' + fmt(p.amount) + '</b></div>' +
+         '<div><div class="l">Rate that day</div><b>' + (p.rate > 0 ? '&#8377;' + fmt(p.rate) : '-') + '</b></div>' +
+         '<div><div class="l">Grams</div><b>' + r.g.toFixed(3) + ' g</b></div>' +
+         '<div><div class="l">Value today</div><b>' + (c.rate > 0 ? '&#8377;' + fmt(r.v) : '-') + '</b></div></div>';
+    if (editing === i) {
+      h += '<div onclick="event.stopPropagation()"><div class="grid4 f" style="margin-top:12px">' +
+           '<div><label>Date</label><input type="date" value="' + esc(p.date) + '" onchange="edit(' + i + ',\'date\',this.value)"></div>' +
+           '<div><label>Paid (&#8377;)</label><input type="number" inputmode="decimal" value="' + p.amount + '" onchange="edit(' + i + ',\'amount\',this.value)"></div>' +
+           '<div><label>Rate that day (&#8377;/g)</label><input type="number" inputmode="decimal" value="' + (p.rate || '') + '" placeholder="enter rate" onchange="edit(' + i + ',\'rate\',this.value)"></div></div>' +
+           '<div class="row between" style="margin-top:8px"><button class="danger" onclick="delPurchase(' + i + ')">Delete</button><button class="small soft" onclick="toggleEdit(-1)">Done</button></div></div>';
+    } else {
+      h += '<div class="muted" style="margin-top:8px">Tap to edit</div>';
+    }
+    h += '</div>';
   });
 
   h += '<button class="ghost" onclick="addPurchase()">+ Add purchase</button><div class="pad"></div>' +
@@ -208,18 +238,44 @@ function renderCreate() {
     '<button style="height:54px;font-size:17px" onclick="createBhishi()">Create Gold Bhishi</button></div>';
 }
 
+function renderSignIn() {
+  return '<div style="min-height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;text-align:center;padding:16px">' +
+    '<div style="width:96px;height:96px;border-radius:48px;background:var(--gold);display:flex;align-items:center;justify-content:center"><svg width="52" height="52" viewBox="0 0 24 24" fill="none" stroke="#FFF9EC" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 15l2-8h8l2 8z"/><path d="M3 19h18"/></svg></div>' +
+    '<div><h1 style="font-size:30px">Gold Bhishi</h1><p style="margin:8px 0 0;line-height:1.5;color:#4A3D27">Track every monthly installment, gold grams and profit or loss in one place.</p></div>' +
+    '<div class="card" style="text-align:left;width:100%;line-height:1.45;font-size:14px"><p style="margin:0 0 10px">Your data is saved in your own Google Drive, in a private app folder.</p><p style="margin:0">New phone? Sign in with the same Gmail and all your Bhishi data comes back automatically.</p></div>' +
+    '<button style="width:100%;height:52px;font-size:16px" onclick="signIn()">Continue with Google</button>' +
+    '<div class="muted" style="font-size:13px;min-height:18px">' + esc(syncMsg) + '</div>' +
+    '<button class="danger" onclick="skipSignIn()">Skip for now</button></div>';
+}
+
+function accountCard() {
+  if (!window.Android) return '';
+  var h = '<div class="card"><h2>Google Drive sync</h2>';
+  if (email) {
+    h += '<p class="muted" style="font-size:13px;line-height:1.5">Signed in as <b>' + esc(email) + '</b>. Your data is kept in a private app folder in your Drive.</p>' +
+         '<p class="muted" style="font-size:13px">' + esc(syncMsg) + '</p>' +
+         '<div class="row"><button onclick="syncNow()">Sync now</button><button class="danger" onclick="signOut()">Sign out</button></div>';
+  } else {
+    h += '<p class="muted" style="font-size:13px;line-height:1.5">Sign in to keep your data safe in Google Drive and get it back on a new phone.</p>' +
+         '<p class="muted" style="font-size:13px">' + esc(syncMsg) + '</p><button onclick="signIn()">Sign in with Google</button>';
+  }
+  return h + '</div>';
+}
+
 function renderBackup() {
-  return '<h1 style="margin-bottom:12px">Backup</h1>' +
+  return '<h1 style="margin-bottom:12px">Backup</h1>' + accountCard() +
     '<div class="card"><h2>Save a backup</h2><p class="muted" style="font-size:13px;line-height:1.5">Tap the button, then choose Drive, Gmail or WhatsApp. Keep this safe &mdash; use it on a new phone.</p>' +
     '<button onclick="exportData()">Share backup</button></div>' +
     '<div class="card"><h2>Restore from backup</h2><p class="muted" style="font-size:13px;line-height:1.5">Paste the backup text here. This replaces the data on this phone.</p>' +
     '<textarea id="imp" placeholder="Paste backup text"></textarea><div class="pad"></div><button onclick="importData()">Restore</button></div>' +
-    '<p class="muted" style="line-height:1.5">Automatic Google Drive sync with Gmail login is the next update.</p>';
+    '<p class="muted" style="line-height:1.5">Backup text works even without Google sign-in.</p>';
 }
 
 function render() {
   var m = document.getElementById('main');
-  if (view === 'create') m.innerHTML = renderCreate();
+  document.querySelector('nav').style.display = (view === 'signin') ? 'none' : 'flex';
+  if (view === 'signin') m.innerHTML = renderSignIn();
+  else if (view === 'create') m.innerHTML = renderCreate();
   else if (view === 'backup') m.innerHTML = renderBackup();
   else m.innerHTML = renderHome();
   document.getElementById('navHome').className = view === 'backup' ? '' : 'on';
@@ -244,8 +300,10 @@ function addPurchase() {
   b.purchases.push({ date: todayStr(), amount: b.amount, rate: state.rates[b.gold] || 0 });
   save(); render();
 }
+function toggleEdit(i) { editing = (editing === i) ? -1 : i; render(); }
 function delPurchase(i) {
   if (!confirm('Delete this purchase?')) return;
+  editing = -1;
   cur().purchases.splice(i, 1); save(); render();
 }
 function delBhishi() {
@@ -289,8 +347,49 @@ function importData() {
   } catch (e) { alert('This is not a valid backup'); }
 }
 
+function signIn() { syncMsg = 'Opening Google...'; render(); Android.signIn(); }
+function syncNow() { syncMsg = 'Syncing...'; render(); Android.pull(); }
+function signOut() { Android.signOut(); email = ''; syncMsg = ''; render(); }
+function skipSignIn() { try { localStorage.setItem('gb_skip', '1'); } catch (e) {} view = 'home'; render(); }
+
+window.onPulled = function (remote, em) {
+  if (em) email = em;
+  var r = null;
+  try { if (remote) r = JSON.parse(remote); } catch (e) {}
+  var localTime = state.updatedAt || 0;
+  if (r && r.bhishis && r.bhishis.length && (!state.bhishis.length || (r.updatedAt || 0) > localTime)) {
+    state = r;
+    if (!state.rates) state.rates = { '22K': 0, '24K': 0 };
+    save(true);
+    syncMsg = 'Restored from Google Drive';
+  } else if (state.bhishis.length) {
+    syncMsg = 'Saving to Google Drive...';
+    Android.push(JSON.stringify(state));
+  } else {
+    syncMsg = 'Signed in. Nothing to restore yet.';
+  }
+  if (view === 'signin') view = 'home';
+  render();
+};
+window.onPushed = function () {
+  var d = new Date();
+  syncMsg = 'Saved to Google Drive at ' + d.getHours() + ':' + ('0' + d.getMinutes()).slice(-2);
+  if (view === 'backup') render();
+};
+window.onSyncError = function (msg) {
+  syncMsg = msg;
+  if (view === 'signin' || view === 'backup') render();
+};
+
 load();
+if (window.Android) {
+  email = Android.getEmail() || '';
+  var skipped = false;
+  try { skipped = !!localStorage.getItem('gb_skip'); } catch (e) {}
+  if (!email && !skipped) view = 'signin';
+}
 render();
+if (window.Android && email) { Android.pull(); }
 </script>
 </body>
 </html>
