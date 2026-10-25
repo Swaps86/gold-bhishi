@@ -55,6 +55,10 @@ button.acc .val{margin-top:auto;font-size:18px;font-weight:700}
 button.newbox{height:auto;min-height:104px;background:transparent;border:2px dashed var(--gold);color:#6B4800;border-radius:14px;padding:14px;text-align:left;display:flex;flex-direction:column;align-items:flex-start;gap:6px}
 button.newbox.blue{border-color:#1F6A86;color:#1F4A5A}
 button.newbox .sub{font-size:12px;font-weight:400;color:var(--muted)}
+.gave{background:#A3261A}.got{background:#2F6B2F}
+button.acc .tag.purple{color:#3F2A63;background:#E6DDF3}
+.sticky{position:sticky;bottom:-24px;display:flex;gap:12px;padding:12px 0 24px;background:var(--bg);margin-top:8px}
+.sticky button{flex:1;height:52px;font-size:16px}
 .hr{height:1px;background:var(--line);margin:14px 0 10px}
 .stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px}
 .stats .l{font-size:11px;color:var(--muted)}
@@ -76,8 +80,10 @@ button.newbox .sub{font-size:12px;font-weight:400;color:var(--muted)}
 </div>
 
 <script>
-var state = { bhishis: [], lends: [], rates: { '22K': 0, '24K': 0 }, sel: null, selLend: null };
+var state = { bhishis: [], lends: [], khatas: [], rates: { '22K': 0, '24K': 0 }, sel: null, selLend: null, selKhata: null };
 var lendDraft = null;
+var entryDraft = null;
+var kEditing = -1;
 var view = 'home';
 var draft = null;
 var editing = -1;
@@ -115,10 +121,11 @@ function nextBhishiName() {
   return 'Gold Bhishi ' + (Math.max(mx, state.bhishis.length) + 1);
 }
 function newLendDraft() { return { name: '', amount: '', date: todayStr(), rate: '' }; }
-function hasData(o) { return !!(o && ((o.bhishis && o.bhishis.length) || (o.lends && o.lends.length))); }
+function hasData(o) { return !!(o && ((o.bhishis && o.bhishis.length) || (o.lends && o.lends.length) || (o.khatas && o.khatas.length))); }
 function fixState() {
   if (!state.bhishis) state.bhishis = [];
   if (!state.lends) state.lends = [];
+  if (!state.khatas) state.khatas = [];
   if (!state.rates) state.rates = { '22K': 0, '24K': 0 };
 }
 function newDraft() {
@@ -130,7 +137,7 @@ function load() {
     var s = window.Android ? Android.load() : localStorage.getItem('gb');
     if (s) {
       var o = JSON.parse(s);
-      if (o && (o.bhishis || o.lends)) { state = o; fixState(); }
+      if (o && (o.bhishis || o.lends || o.khatas)) { state = o; fixState(); }
     }
   } catch (e) {}
 }
@@ -312,7 +319,7 @@ function renderHome() {
           '<div><h1>My Accounts</h1><div class="muted" style="color:#2F6B2F;font-size:11px">' + (email ? 'Saved to Google Drive &middot; ' + esc(email) : 'Saved on this phone') + '</div></div></div>';
 
   h += '<div class="row between" style="margin:4px 4px 10px"><h2>Your accounts</h2><span class="muted">Tap to open</span></div>';
-  if (!state.bhishis.length && !state.lends.length) {
+  if (!state.bhishis.length && !state.lends.length && !state.khatas.length) {
     h += '<div class="card muted" style="text-align:center;padding:24px 14px;font-size:14px">No accounts yet. Create one below.</div>';
   } else {
     h += '<div class="grid2">';
@@ -332,13 +339,22 @@ function renderHome() {
            '<span class="val">&#8377;' + fmt(c.due) + '</span>' +
            '<span class="sub" style="font-weight:600">' + (c.done ? 'fully received' : 'to receive') + '</span></button>';
     });
+    state.khatas.forEach(function (k) {
+      var c = kCalc(k);
+      var last = k.entries.length ? fmtDate(sortedEntries(k)[0].e.date) : '-';
+      h += '<button class="acc" onclick="openKhata(\'' + k.id + '\')"><span class="tag purple">Khata</span>' +
+           '<span class="nm">' + esc(k.name) + '</span>' +
+           '<span class="sub">' + k.entries.length + ' entries &middot; ' + last + '</span>' +
+           '<span class="val">&#8377;' + fmt(Math.abs(c.bal)) + '</span>' +
+           '<span class="sub" style="font-weight:600">' + (Math.abs(c.bal) < 0.5 ? 'settled' : (c.bal > 0 ? '&#9650; you will get' : '&#9660; you will give')) + '</span></button>';
+    });
     h += '</div>';
   }
 
   h += '<div class="hr"></div><div class="row between" style="margin:0 4px 10px"><h2>Create new</h2><span class="muted">Pick a form</span></div>' +
        '<div class="grid2">' +
        '<button class="newbox" onclick="go(\'create\')"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#6B4800" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span>Gold Bhishi Form</span><span class="sub">22K / 24K, monthly installment</span></button>' +
-       '<button class="newbox blue" onclick="go(\'createLend\')"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#1F4A5A" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span>Lend Money Form</span><span class="sub">Money given to a person</span></button></div>';
+       '<button class="newbox" style="border-color:#5B3F94;color:#3F2A63" onclick="openEntry(null,\'gave\')"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#3F2A63" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span>Khata Book Form</span><span class="sub">Money given &amp; taken</span></button></div>';
   return h;
 }
 
@@ -383,6 +399,108 @@ function renderLend() {
        '<div style="text-align:center"><button class="danger" onclick="delLend()">Delete this account</button></div>';
   return h;
 }
+
+function sortedEntries(k) {
+  return k.entries.map(function (e, i) { return { e: e, i: i }; }).sort(function (a, b) {
+    return a.e.date < b.e.date ? 1 : a.e.date > b.e.date ? -1 : b.i - a.i;
+  });
+}
+function kCalc(k) {
+  var gave = 0, got = 0, interest = 0;
+  k.entries.forEach(function (e) {
+    if (e.type === 'gave') {
+      gave += e.amount;
+      var days = Math.max(0, Math.floor((Date.now() - new Date(e.date + 'T00:00:00').getTime()) / 86400000));
+      interest += e.amount * (k.rate || 0) / 100 * days / 365;
+    } else { got += e.amount; }
+  });
+  return { gave: gave, got: got, interest: interest, bal: gave - got + interest };
+}
+function curKhata() {
+  for (var i = 0; i < state.khatas.length; i++) if (state.khatas[i].id === state.selKhata) return state.khatas[i];
+  return null;
+}
+function findKhataByName(n) {
+  n = (n || '').trim().toLowerCase();
+  if (!n) return null;
+  for (var i = 0; i < state.khatas.length; i++) if (state.khatas[i].name.trim().toLowerCase() === n) return state.khatas[i];
+  return null;
+}
+function openKhata(id) { state.selKhata = id; kEditing = -1; view = 'khata'; render(); }
+function openEntry(id, type) {
+  var k = null;
+  state.khatas.forEach(function (x) { if (x.id === id) k = x; });
+  entryDraft = { name: k ? k.name : '', phone: '', rate: '', type: type || 'gave', amount: '', date: todayStr(), note: '' };
+  view = 'entry'; render();
+}
+
+function renderEntry() {
+  var d = entryDraft;
+  var gaveOn = d.type === 'gave';
+  var h = '<div class="row" style="margin-bottom:12px"><button class="small soft" onclick="go(\'home\')" aria-label="Back">&larr; Back</button><h1>Khata Book Entry</h1></div><div class="col f" style="gap:16px">' +
+    '<div><label style="font-size:13px;font-weight:600">What happened?</label><div class="seg">' +
+      '<button style="' + (gaveOn ? 'border:2px solid #A3261A;background:#FBE7E4;color:#7A1A11' : '') + '" onclick="setEntryType(\'gave\')">&#9650; You gave</button>' +
+      '<button style="' + (!gaveOn ? 'border:2px solid #2F6B2F;background:#E3F1E3;color:#1D4A1D' : '') + '" onclick="setEntryType(\'got\')">&#9660; You got</button></div>' +
+      '<div class="muted" style="margin-top:4px">You gave = money went out to the person. You got = money came back to you.</div></div>' +
+    '<div><label style="font-size:13px;font-weight:600">Person name</label><input type="text" value="' + esc(d.name) + '" placeholder="Type a name" oninput="entryDraft.name=this.value;togglePersonBox()">';
+  if (state.khatas.length) {
+    h += '<div class="row" style="flex-wrap:wrap;margin-top:8px">';
+    state.khatas.forEach(function (k) {
+      h += '<button class="small soft" onclick="pickPerson(\'' + k.id + '\')">' + esc(k.name) + '</button>';
+    });
+    h += '</div>';
+  }
+  h += '</div><div id="newPersonBox" style="display:' + (findKhataByName(d.name) ? 'none' : 'block') + '"><div class="card" style="margin:0"><div class="muted" style="margin-bottom:8px">New person (optional)</div><div class="grid4 f">' +
+      '<div><label>Phone number</label><input type="tel" inputmode="tel" value="' + esc(d.phone) + '" oninput="entryDraft.phone=this.value"></div>' +
+      '<div><label>Interest % / year</label><input type="number" inputmode="decimal" value="' + esc(d.rate) + '" placeholder="0" oninput="entryDraft.rate=this.value"></div></div></div></div>' +
+    '<div><label style="font-size:13px;font-weight:600">Amount (&#8377;)</label><input type="number" inputmode="decimal" style="height:56px;font-size:22px;font-weight:700" value="' + esc(d.amount) + '" placeholder="e.g. 5000" oninput="entryDraft.amount=this.value"></div>' +
+    '<div><label style="font-size:13px;font-weight:600">Date</label><input type="date" value="' + esc(d.date) + '" oninput="entryDraft.date=this.value"></div>' +
+    '<div><label style="font-size:13px;font-weight:600">Note (optional)</label><input type="text" value="' + esc(d.note) + '" oninput="entryDraft.note=this.value"></div>' +
+    '<button style="height:54px;font-size:17px" onclick="saveEntry()">Save entry</button></div>';
+  return h;
+}
+
+function renderKhata() {
+  var k = curKhata();
+  if (!k) { view = 'home'; return renderHome(); }
+  var c = kCalc(k);
+  var settled = Math.abs(c.bal) < 0.5;
+  var h = '<div class="row" style="margin-bottom:12px"><button class="small soft" onclick="go(\'home\')" aria-label="Back">&larr; Back</button>' +
+    '<div><h1>' + esc(k.name) + '</h1><div class="muted" style="font-size:11px">Khata' + (k.phone ? ' &middot; ' + esc(k.phone) : '') + (k.rate > 0 ? ' &middot; ' + k.rate + '% per year' : '') + '</div></div></div>';
+  h += '<div class="dark"><div class="lbl">' + (settled ? 'Settled' : (c.bal > 0 ? 'You will get' : 'You will give')) + '</div><div class="big">&#8377;' + fmt(Math.abs(c.bal)) + '</div>' +
+       '<div style="height:1px;background:#4A3D27;margin:12px 0"></div>' +
+       '<div class="row between"><div><div class="lbl">Total you gave</div><b>&#8377;' + fmt(c.gave) + '</b></div>' +
+       (k.rate > 0 ? '<div style="text-align:center"><div class="lbl">Interest</div><b>&#8377;' + fmt(c.interest) + '</b></div>' : '') +
+       '<div style="text-align:right"><div class="lbl">Total you got</div><b>&#8377;' + fmt(c.got) + '</b></div></div></div>';
+
+  h += '<div class="row between" style="margin:14px 4px 8px"><h2>Entries</h2><span class="muted">Newest first &middot; tap to edit</span></div>';
+  if (!k.entries.length) h += '<div class="card muted" style="text-align:center">No entries yet.</div>';
+  sortedEntries(k).forEach(function (x) {
+    var e = x.e, i = x.i, gave = e.type === 'gave';
+    h += '<div class="card" onclick="toggleK(' + i + ')"><div class="row between"><div><b>' + fmtDate(e.date) + '</b><div class="muted">' + esc(e.note || '') + '</div></div>' +
+         '<div style="text-align:right"><div style="font-size:16px;font-weight:700;color:' + (gave ? '#A3261A' : '#2F6B2F') + '">&#8377;' + fmt(e.amount) + '</div>' +
+         '<div style="font-size:12px;font-weight:600;color:' + (gave ? '#A3261A' : '#2F6B2F') + '">' + (gave ? '&#9650; You gave' : '&#9660; You got') + '</div></div></div>';
+    if (kEditing === i) {
+      h += '<div onclick="event.stopPropagation()"><div class="grid4 f" style="margin-top:12px">' +
+           '<div><label>Date</label><input type="date" value="' + esc(e.date) + '" onchange="kEdit(' + i + ',\'date\',this.value)"></div>' +
+           '<div><label>Amount (&#8377;)</label><input type="number" inputmode="decimal" value="' + e.amount + '" onchange="kEdit(' + i + ',\'amount\',this.value)"></div>' +
+           '<div><label>Note</label><input type="text" value="' + esc(e.note || '') + '" onchange="kEdit(' + i + ',\'note\',this.value)"></div>' +
+           '<div><label>Type</label><select onchange="kEdit(' + i + ',\'type\',this.value)"><option value="gave"' + (gave ? ' selected' : '') + '>You gave</option><option value="got"' + (!gave ? ' selected' : '') + '>You got</option></select></div></div>' +
+           '<div class="row between" style="margin-top:8px"><button class="danger" onclick="kDel(' + i + ')">Delete</button><button class="small soft" onclick="toggleK(-1)">Done</button></div></div>';
+    }
+    h += '</div>';
+  });
+
+  h += '<div class="card"><h2 style="margin-bottom:10px">Person details</h2><div class="grid4 f">' +
+       '<div><label>Name</label><input type="text" value="' + esc(k.name) + '" onchange="kField(\'name\',this.value)"></div>' +
+       '<div><label>Phone</label><input type="tel" inputmode="tel" value="' + esc(k.phone || '') + '" onchange="kField(\'phone\',this.value)"></div>' +
+       '<div><label>Interest % / year</label><input type="number" inputmode="decimal" value="' + (k.rate || '') + '" placeholder="0" onchange="kField(\'rate\',this.value)"></div></div>' +
+       '<p class="muted" style="margin:8px 0 0;line-height:1.4">Interest is simple, only on money you gave, from each entry\'s date. Balance = gave + interest &minus; got.</p></div>';
+  h += '<div style="text-align:center"><button class="danger" onclick="delKhata()">Delete this person</button></div>' +
+       '<div class="sticky"><button class="gave" onclick="openEntry(\'' + k.id + '\',\'gave\')">&#9650; You gave</button><button class="got" onclick="openEntry(\'' + k.id + '\',\'got\')">&#9660; You got</button></div>';
+  return h;
+}
+
 
 function renderCreate() {
   var d = draft;
@@ -446,6 +564,8 @@ function render() {
   else if (view === 'createLend') m.innerHTML = renderCreateLend();
   else if (view === 'gold') m.innerHTML = renderGold();
   else if (view === 'lend') m.innerHTML = renderLend();
+  else if (view === 'khata') m.innerHTML = renderKhata();
+  else if (view === 'entry') m.innerHTML = renderEntry();
   else if (view === 'backup') m.innerHTML = renderBackup();
   else m.innerHTML = renderHome();
   document.getElementById('navHome').className = view === 'backup' ? '' : 'on';
@@ -545,6 +665,52 @@ function delLend() {
   state.lends = state.lends.filter(function (x) { return x.id !== l.id; });
   state.selLend = null; view = 'home'; save(); render();
 }
+function setEntryType(t) { entryDraft.type = t; render(); }
+function pickPerson(id) {
+  state.khatas.forEach(function (k) { if (k.id === id) entryDraft.name = k.name; });
+  render();
+}
+function togglePersonBox() {
+  var box = document.getElementById('newPersonBox');
+  if (box) box.style.display = findKhataByName(entryDraft.name) ? 'none' : 'block';
+}
+function saveEntry() {
+  var d = entryDraft;
+  var nm = d.name.trim();
+  if (!nm) { alert('Enter the person name'); return; }
+  var amt = num(d.amount);
+  if (amt <= 0) { alert('Enter the amount'); return; }
+  var k = findKhataByName(nm);
+  if (!k) {
+    k = { id: 'k' + Date.now().toString(36), name: nm, phone: d.phone.trim(), rate: num(d.rate), entries: [] };
+    state.khatas.push(k);
+  }
+  k.entries.push({ type: d.type, amount: amt, date: d.date || todayStr(), note: d.note.trim() });
+  state.selKhata = k.id; kEditing = -1;
+  save(); view = 'khata'; render();
+}
+function toggleK(i) { kEditing = (kEditing === i) ? -1 : i; render(); }
+function kEdit(i, f, v) {
+  var e = curKhata().entries[i];
+  e[f] = (f === 'amount') ? num(v) : v;
+  save(); render();
+}
+function kDel(i) {
+  if (!confirm('Delete this entry?')) return;
+  kEditing = -1; curKhata().entries.splice(i, 1); save(); render();
+}
+function kField(f, v) {
+  var k = curKhata(); if (!k) return;
+  k[f] = (f === 'rate') ? num(v) : v;
+  if (f === 'name' && !k.name.trim()) k.name = 'Person';
+  save(); render();
+}
+function delKhata() {
+  var k = curKhata();
+  if (!confirm('Delete "' + k.name + '" and all entries?')) return;
+  state.khatas = state.khatas.filter(function (x) { return x.id !== k.id; });
+  state.selKhata = null; view = 'home'; save(); render();
+}
 function exportData() {
   var s = JSON.stringify(state);
   if (window.Android) Android.share(s);
@@ -554,7 +720,7 @@ function importData() {
   var t = document.getElementById('imp').value.trim();
   try {
     var o = JSON.parse(t);
-    if (!o || (!Array.isArray(o.bhishis) && !Array.isArray(o.lends))) throw new Error('bad');
+    if (!o || (!Array.isArray(o.bhishis) && !Array.isArray(o.lends) && !Array.isArray(o.khatas))) throw new Error('bad');
     if (!confirm('Replace all data on this phone with this backup?')) return;
     state = o; fixState();
     save(); view = 'home'; render(); alert('Restored');
