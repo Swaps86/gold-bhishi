@@ -29,7 +29,7 @@ textarea{padding:10px 12px;height:120px}
 button{font-family:inherit;font-size:15px;font-weight:700;border:0;border-radius:12px;height:48px;padding:0 18px;background:var(--gold);color:#fff}
 button.ghost{background:transparent;color:#6B4800;border:2px dashed var(--gold);width:100%}
 button.soft{background:var(--soft);color:#3F2C00}
-button.small{height:36px;font-size:13px;padding:0 12px}
+button.small{white-space:nowrap;flex-shrink:0;height:36px;font-size:13px;padding:0 12px}
 button.danger{background:transparent;color:var(--red);height:36px;font-size:13px}
 .seg{display:flex;gap:10px}
 .seg button{flex:1;height:52px;font-size:17px;background:#fff;color:#4A3D27;border:1px solid var(--edge)}
@@ -80,6 +80,17 @@ button.acc .tag.purple{color:#3F2A63;background:#E6DDF3}
 .plus{width:44px;height:44px;padding:0;border-radius:22px;display:flex;align-items:center;justify-content:center}
 .stepper{display:flex;align-items:center;justify-content:space-between;height:56px;border:1px solid var(--edge);border-radius:10px;background:#fff;padding:0 6px}
 .stepper button{width:44px;height:44px;padding:0;font-size:24px;border-radius:8px}
+button.acc .tag.brown{color:#5A2A12;background:#F6E0D3}
+.lswrap{overflow:auto;max-height:calc(100vh - 290px);border-top:1px solid var(--line);border-bottom:1px solid var(--line);background:#fff;margin:0 -16px;-webkit-overflow-scrolling:touch}
+table.lt{border-collapse:separate;border-spacing:0;font-size:13px;min-width:760px;width:100%}
+.lt th{position:sticky;top:0;z-index:1;background:#F6E0D3;color:#5A2A12;text-align:right;font-size:12px;font-weight:700;padding:8px 10px;line-height:1.25;vertical-align:bottom;border-bottom:1px solid #E0C2B0}
+.lt td{text-align:right;padding:0 10px;height:48px;border-bottom:1px solid #EFE4C6;white-space:nowrap;background:#fff}
+.lt .s1{position:sticky;left:0;z-index:2;text-align:center;width:44px;min-width:44px;padding:0}
+.lt .s2{position:sticky;left:44px;z-index:2;text-align:left;min-width:100px;box-shadow:2px 0 0 #E8DBB8}
+.lt th.s1,.lt th.s2{z-index:3;background:#F6E0D3}
+.lt tr.paid td{background:#EEF5EC}
+.lt tr.next td{background:#FFF1D0;font-weight:700}
+.cb{width:22px;height:22px;accent-color:#7A3B1D;margin:0;padding:0}
 .empty{text-align:center;padding:48px 16px}
 </style>
 </head>
@@ -93,7 +104,7 @@ button.acc .tag.purple{color:#3F2A63;background:#E6DDF3}
 </div>
 
 <script>
-var state = { bhishis: [], lends: [], khatas: [], rates: { '22K': 0, '24K': 0 }, sel: null, selLend: null, selKhata: null };
+var state = { bhishis: [], lends: [], khatas: [], loans: [], rates: { '22K': 0, '24K': 0 }, sel: null, selLend: null, selKhata: null };
 var lendDraft = null;
 var entryDraft = null;
 var kEditing = -1;
@@ -136,11 +147,12 @@ function nextBhishiName() {
   return 'Gold Bhishi ' + (Math.max(mx, state.bhishis.length) + 1);
 }
 function newLendDraft() { return { name: '', amount: '', date: todayStr(), rate: '' }; }
-function hasData(o) { return !!(o && ((o.bhishis && o.bhishis.length) || (o.lends && o.lends.length) || (o.khatas && o.khatas.length))); }
+function hasData(o) { return !!(o && ((o.bhishis && o.bhishis.length) || (o.lends && o.lends.length) || (o.khatas && o.khatas.length) || (o.loans && o.loans.length))); }
 function fixState() {
   if (!state.bhishis) state.bhishis = [];
   if (!state.lends) state.lends = [];
   if (!state.khatas) state.khatas = [];
+  if (!state.loans) state.loans = [];
   if (!state.rates) state.rates = { '22K': 0, '24K': 0 };
 }
 function newDraft() {
@@ -152,7 +164,7 @@ function load() {
     var s = window.Android ? Android.load() : localStorage.getItem('gb');
     if (s) {
       var o = JSON.parse(s);
-      if (o && (o.bhishis || o.lends || o.khatas)) { state = o; fixState(); }
+      if (o && (o.bhishis || o.lends || o.khatas || o.loans)) { state = o; fixState(); }
     }
   } catch (e) {}
 }
@@ -262,6 +274,8 @@ function go(v) {
 window.goBack = function () {
   if (view === 'lock' || view === 'setlock' || view === 'signin') return false;
   if (view === 'khataEdit') { view = 'khata'; render(); return true; }
+  if (view === 'loanSched') { view = 'loan'; render(); return true; }
+  if (view === 'loanReview') { view = 'loanAdd'; render(); return true; }
   if (view !== 'home') { view = 'home'; render(); return true; }
   return false;
 };
@@ -335,9 +349,9 @@ function renderHome() {
   var h = '<div class="row" style="margin-bottom:12px"><div class="logo"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#FFF9EC" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 15l2-8h8l2 8z"/><path d="M3 19h18"/></svg></div>' +
           '<div><h1>Apna Khata</h1><div class="muted" style="color:#2F6B2F;font-size:11px">' + (email ? 'Saved to Google Drive &middot; ' + esc(email) : 'Saved on this phone') + '</div></div></div>';
 
-  var anyAcc = state.bhishis.length || state.lends.length || state.khatas.length;
+  var anyAcc = state.bhishis.length || state.lends.length || state.khatas.length || state.loans.length;
   h += '<div class="row between" style="margin:4px 4px 10px"><h2>Your accounts</h2>' + (anyAcc ? '<button class="small soft" onclick="pdfAll()" aria-label="PDF of all accounts">PDF of all</button>' : '<span class="muted">Tap to open</span>') + '</div>';
-  if (!state.bhishis.length && !state.lends.length && !state.khatas.length) {
+  if (!anyAcc) {
     h += '<div class="card muted" style="text-align:center;padding:24px 14px;font-size:14px">No accounts yet. Create one below.</div>';
   } else {
     h += '<div class="grid2">';
@@ -366,13 +380,15 @@ function renderHome() {
            '<span class="val">&#8377;' + fmt(Math.abs(c.bal)) + '</span>' +
            '<span class="sub" style="font-weight:600">' + (Math.abs(c.bal) < 0.5 ? 'settled' : (c.bal > 0 ? '&#9650; you will get' : '&#9660; you will give')) + '</span></button>';
     });
+    state.loans.forEach(function (l) { h += loanHomeCard(l); });
     h += '</div>';
   }
 
   h += '<div class="hr"></div><div class="row between" style="margin:0 4px 10px"><h2>Create new</h2><span class="muted">Pick a form</span></div>' +
        '<div class="grid2">' +
        '<button class="newbox" onclick="go(\'create\')"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#6B4800" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span>Gold Bhishi Form</span><span class="sub">22K / 24K, monthly installment</span></button>' +
-       '<button class="newbox" style="border-color:#5B3F94;color:#3F2A63" onclick="openEntry(null,\'gave\')"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#3F2A63" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span>Khata Book Form</span><span class="sub">Money given &amp; taken</span></button></div>';
+       '<button class="newbox" style="border-color:#5B3F94;color:#3F2A63" onclick="openEntry(null,\'gave\')"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#3F2A63" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span>Khata Book Form</span><span class="sub">Money given &amp; taken</span></button>' +
+       '<button class="newbox" style="grid-column:1/-1;min-height:84px;border-color:#7A3B1D;color:#5A2A12" onclick="openLoanAdd()"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#5A2A12" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span>Loan Form</span><span class="sub">Home / personal loan &mdash; upload your schedule PDF</span></button></div>';
   return h;
 }
 
@@ -610,6 +626,11 @@ function pdfAll() {
     });
     body += '<tr class="tot"><td>Total</td><td></td><td></td><td class="r">' + rs(tl) + '</td></tr></table>';
   }
+  if (state.loans.length) {
+    body += '<h2>Loans</h2><table><tr><th>Loan</th><th class="r">Principal left</th><th class="r">EMI</th><th class="r">Paid</th><th class="r">Left to pay</th></tr>';
+    state.loans.forEach(function (l) { var c = loanCalc(l); body += '<tr><td>' + esc(l.name) + '</td><td class="r">' + rs(c.pLeft) + '</td><td class="r">' + rs(c.emi) + '</td><td class="r">' + c.paidN + ' of ' + c.n + '</td><td class="r">' + rs(c.left) + '</td></tr>'; });
+    body += '</table>';
+  }
   if (!body) { alert('Nothing to print yet'); return; }
   sendPdf(pdfWrap('All Accounts Summary', '', body), 'Apna Khata summary');
 }
@@ -796,6 +817,7 @@ function renderBackup() {
 }
 
 function render() {
+  if (!state.loans) state.loans = [];
   var m = document.getElementById('main');
   document.querySelector('nav').style.display = (view === 'signin' || view === 'lock' || view === 'setlock') ? 'none' : 'flex';
   if (view === 'signin') m.innerHTML = renderSignIn();
@@ -804,6 +826,10 @@ function render() {
   else if (view === 'gold') m.innerHTML = renderGold();
   else if (view === 'lend') m.innerHTML = renderLend();
   else if (view === 'khata') m.innerHTML = renderKhata();
+  else if (view === 'loanAdd') m.innerHTML = renderLoanAdd();
+  else if (view === 'loanReview') m.innerHTML = renderLoanReview();
+  else if (view === 'loan') m.innerHTML = renderLoan();
+  else if (view === 'loanSched') m.innerHTML = renderLoanSched();
   else if (view === 'khataEdit') m.innerHTML = renderKhataEdit();
   else if (view === 'lock') m.innerHTML = renderLock();
   else if (view === 'setlock') m.innerHTML = renderSetLock();
@@ -962,7 +988,7 @@ function importData() {
   var t = document.getElementById('imp').value.trim();
   try {
     var o = JSON.parse(t);
-    if (!o || (!Array.isArray(o.bhishis) && !Array.isArray(o.lends) && !Array.isArray(o.khatas))) throw new Error('bad');
+    if (!o || (!Array.isArray(o.bhishis) && !Array.isArray(o.lends) && !Array.isArray(o.khatas) && !Array.isArray(o.loans))) throw new Error('bad');
     if (!confirm('Replace all data on this phone with this backup?')) return;
     state = o; fixState();
     save(); view = 'home'; render(); alert('Restored');
@@ -1012,6 +1038,285 @@ window.onSyncError = function (msg) {
   syncMsg = msg;
   if (view === 'signin' || view === 'backup') render();
 };
+
+/* ---- Loan PDF parsing (shared by app + tests) ---- */
+var LP_AMT='[\\d,]+\\.\\d{2}';
+var LP_ROW=new RegExp('^(?:(\\d{1,4})\\s+)?(\\d{2}\\/\\d{2}\\/\\d{4})\\s+('+LP_AMT+')\\s+('+LP_AMT+')\\s+('+LP_AMT+')\\s+('+LP_AMT+')\\s+('+LP_AMT+')\\s+(\\d{1,2}\\.\\d{1,2})\\s+(\\S+)\\s+('+LP_AMT+')\\s+('+LP_AMT+')(?:\\s+\\S+)?\\s*$');
+function lpNum(s){return parseFloat(String(s).replace(/,/g,''))||0}
+function lpIso(d){var m=/^(\d{2})\/(\d{2})\/(\d{4})$/.exec(d);return m?m[3]+'-'+m[2]+'-'+m[1]:''}
+/* items: [{x,y,t}] for one page, y grows downward. Returns array of line strings top->bottom */
+function lpLines(items){
+  var rows=[];
+  items.sort(function(a,b){return a.y-b.y});
+  items.forEach(function(it){
+    var r=null;
+    for(var i=rows.length-1;i>=0;i--){ if(Math.abs(rows[i].y-it.y)<=3){r=rows[i];break} if(rows[i].y<it.y-3)break }
+    if(!r){r={y:it.y,c:[]};rows.push(r)}
+    r.c.push(it);
+  });
+  rows.sort(function(a,b){return a.y-b.y});
+  return rows.map(function(r){r.c.sort(function(a,b){return a.x-b.x});return r.c.map(function(c){return c.t}).join(' ').replace(/\s+/g,' ').trim()}).filter(Boolean);
+}
+/* pages: array of arrays of lines */
+function parseLoanLines(pages){
+  var inst=[],all=[],seen={};
+  pages.forEach(function(lines){lines.forEach(function(l){all.push(l);
+    var m=LP_ROW.exec(l); if(!m||!m[1])return;
+    var n=parseInt(m[1],10); if(seen[n])return; seen[n]=1;
+    inst.push({n:n,due:lpIso(m[2]),open:lpNum(m[3]),emi:lpNum(m[4]),prin:lpNum(m[5]),int:lpNum(m[6]),close:lpNum(m[7]),rate:parseFloat(m[8]),type:m[9],total:lpNum(m[11]),paid:false});
+  })});
+  inst.sort(function(a,b){return a.n-b.n});
+  var head=(pages[0]||[]).join(' \n ');
+  var out={installments:inst,agreement:'',sanction:0,product:'',lender:'',rateNow:0,emi:0};
+  var mm;
+  if((mm=/Agreement No\.?\s*:\s*([A-Z0-9]+)/.exec(head))) out.agreement=mm[1];
+  var jn=(pages[0]||[]).join(' | ');
+  if((mm=/Product\s*:\s*([A-Za-z ]+?)(?:\s*\||$)/.exec(jn))) out.product=mm[1].trim();
+  if((mm=/Original Sanction Amount\s*:\s*([\d,]+\.\d{2})/.exec(jn))) out.sanction=lpNum(mm[1]);
+  if((mm=/Interest Rate\s*:\s*(\d{1,2}\.\d{1,2})/.exec(jn))) out.rateNow=parseFloat(mm[1]);
+  if((mm=/Interest Start Date\s*:\s*(\d{2}\/\d{2}\/\d{4})/.exec(jn))) out.startDate=lpIso(mm[1]);
+  all.forEach(function(l){ if(!out.lender&&/\b(FINANCE|BANK|LTD|LIMITED)\b/i.test(l)&&l.length<60&&!/\d{2}\/\d{2}\/\d{4}/.test(l)) out.lender=l; });
+  return out;
+}
+if(typeof module!=='undefined')module.exports={lpLines:lpLines,parseLoanLines:parseLoanLines};
+
+/* ---------- Loans ---------- */
+var loanDraft = null, loanFilter = 'upcoming', loanTypes = ['Home', 'Personal', 'Car', 'Other'];
+function newLoanDraft() { return { name: '', nameEdited: false, type: 'Home', busy: false, error: '', parsed: null, fileName: '', manual: false, amount: '', rate: '', months: '', emi: '', first: todayStr() }; }
+function curLoan() { var r = null; (state.loans || []).forEach(function (l) { if (l.id === state.selLoan) r = l; }); return r; }
+function openLoan(id) { state.selLoan = id; view = 'loan'; render(); }
+function openLoanAdd() { loanDraft = newLoanDraft(); loanDraft.name = loanAutoName(loanDraft.type); view = 'loanAdd'; render(); }
+function loanAutoName(type) {
+  var base = type + ' Loan', n = 0, names = (state.loans || []).map(function (l) { return l.name; });
+  if (names.indexOf(base) < 0) return base;
+  do { n++; } while (names.indexOf(base + ' ' + n) >= 0 && n < 99);
+  return base + ' ' + n;
+}
+function dueAmt(x) { return x.paid ? 0 : (x.total > 0 ? x.total : x.emi); }
+function loanCalc(l) {
+  var ins = l.installments || [], paidN = 0, intPaid = 0, left = 0, totInt = 0, next = null;
+  ins.forEach(function (x) {
+    totInt += x.int;
+    if (x.paid) { paidN++; intPaid += x.int; } else { left += dueAmt(x); if (!next) next = x; }
+  });
+  var sanction = l.sanction || ins.reduce(function (a, x) { return a + x.prin; }, 0);
+  var pl = next ? next.open : 0;
+  return { n: ins.length, paidN: paidN, intPaid: intPaid, left: left, totInt: totInt, next: next, sanction: sanction, pLeft: pl, pPaid: Math.max(0, sanction - pl),
+    emi: next ? next.emi : (ins.length ? ins[ins.length - 1].emi : 0), rate: next ? next.rate : (l.rateNow || 0) };
+}
+function pdfJsLoad(cb) {
+  if (window.pdfjsLib) { cb(null); return; }
+  function add(src, ok) { var s = document.createElement('script'); s.src = src; s.onload = ok; s.onerror = function () { cb('Could not load the PDF reader'); }; document.head.appendChild(s); }
+  add('pdf.min.js', function () { add('pdf.worker.min.js', function () {
+    try { pdfjsLib.GlobalWorkerOptions.workerSrc = 'pdf.worker.min.js'; } catch (e) {}
+    cb(null);
+  }); });
+}
+function extractPdfLines(buf, done) {
+  pdfJsLoad(function (err) {
+    if (err) { done(err); return; }
+    var pagesOut = [];
+    pdfjsLib.getDocument({ data: new Uint8Array(buf), disableFontFace: true, useWorkerFetch: false, isEvalSupported: false, verbosity: 0 }).promise.then(function (doc) {
+      var n = 1;
+      (function next() {
+        if (n > doc.numPages) { done(null, pagesOut); return; }
+        doc.getPage(n).then(function (p) {
+          var vp = p.getViewport({ scale: 1 });
+          return p.getTextContent().then(function (tc) {
+            var items = [];
+            tc.items.forEach(function (it) {
+              var t = (it.str || '').trim(); if (!t) return;
+              var m = pdfjsLib.Util.transform(vp.transform, it.transform);
+              items.push({ x: m[4], y: m[5], t: t });
+            });
+            pagesOut.push(lpLines(items)); n++; setTimeout(next, 0);
+          });
+        }).catch(function () { done('Could not read this PDF'); });
+      })();
+    }).catch(function (e) {
+      done(e && e.name === 'PasswordException' ? 'This PDF has a password. Remove the password and try again.' : 'Could not read this PDF');
+    });
+  });
+}
+function loanPickPdf() {
+  var i = document.createElement('input'); i.type = 'file'; i.accept = 'application/pdf';
+  i.onchange = function () {
+    var f = i.files && i.files[0]; if (!f) return;
+    loanDraft.busy = true; loanDraft.error = ''; loanDraft.fileName = f.name; render();
+    var fr = new FileReader();
+    fr.onerror = function () { loanDraft.busy = false; loanDraft.error = 'Could not open the file'; render(); };
+    fr.onload = function () {
+      extractPdfLines(fr.result, function (err, pages) {
+        loanDraft.busy = false;
+        if (err) { loanDraft.error = err; render(); return; }
+        var r = parseLoanLines(pages), td = todayStr();
+        if (!r.installments.length) { loanDraft.error = 'Could not find a repayment schedule in this PDF. It may be a scanned picture or a different format. Use "enter details yourself" below.'; render(); return; }
+        r.installments.forEach(function (x) { x.paid = x.total < 0.5 && x.due <= td; });
+        loanDraft.parsed = r;
+        if (/home|housing/i.test(r.product)) loanDraft.type = 'Home'; else if (/personal/i.test(r.product)) loanDraft.type = 'Personal'; else if (/car|auto|vehicle/i.test(r.product)) loanDraft.type = 'Car';
+        if (!loanDraft.nameEdited) loanDraft.name = loanAutoName(loanDraft.type);
+        view = 'loanReview'; render();
+      });
+    };
+    fr.readAsArrayBuffer(f);
+  };
+  i.click();
+}
+function setLoanType(t) { loanDraft.type = t; if (!loanDraft.nameEdited) loanDraft.name = loanAutoName(t); render(); }
+function toggleLoanManual() { loanDraft.manual = !loanDraft.manual; render(); }
+function addMonthsIso(iso, k) {
+  var p = iso.split('-'), y = +p[0], m = +p[1] - 1 + k, d = +p[2];
+  y += Math.floor(m / 12); m = ((m % 12) + 12) % 12;
+  var last = new Date(y, m + 1, 0).getDate();
+  return y + '-' + ('0' + (m + 1)).slice(-2) + '-' + ('0' + Math.min(d, last)).slice(-2);
+}
+function buildSchedule(amount, rate, months, emi, first) {
+  var r = rate / 1200, e = emi;
+  if (!(e > 0)) e = r > 0 ? amount * r * Math.pow(1 + r, months) / (Math.pow(1 + r, months) - 1) : amount / months;
+  e = Math.round(e);
+  var open = amount, out = [], td = todayStr();
+  for (var i = 0; i < months && open > 0; i++) {
+    var it = Math.round(open * r), pr = e - it, em = e;
+    if (pr < 0) pr = 0;
+    if (pr > open || i === months - 1) { pr = open; em = pr + it; }
+    var due = addMonthsIso(first, i);
+    out.push({ n: i + 1, due: due, open: open, emi: em, prin: pr, int: it, close: open - pr, rate: rate, type: 'EMI', total: em, paid: due <= td });
+    open -= pr;
+  }
+  return out;
+}
+function saveLoanFromDraft(manual) {
+  var d = loanDraft, nm = (d.name || '').trim() || loanAutoName(d.type), l;
+  if (manual) {
+    var a = num(d.amount), rt = num(d.rate), mo = Math.round(num(d.months)), em = num(d.emi);
+    if (!(a > 0)) { alert('Enter the loan amount'); return; }
+    if (!(mo >= 1 && mo <= 600)) { alert('Enter months between 1 and 600'); return; }
+    if (rt < 0 || rt > 60) { alert('Enter a valid interest rate'); return; }
+    if (!d.first) { alert('Choose the first EMI date'); return; }
+    var ins = buildSchedule(a, rt, mo, em, d.first);
+    l = { id: 'ln' + Date.now().toString(36), name: nm, type: d.type, lender: '', agreement: '', sanction: a, rateNow: rt, installments: ins, manual: true };
+  } else {
+    var r = d.parsed;
+    l = { id: 'ln' + Date.now().toString(36), name: nm, type: d.type, lender: r.lender || '', agreement: (r.agreement || '').slice(-4), sanction: r.sanction, rateNow: r.rateNow, installments: r.installments };
+  }
+  state.loans = state.loans || []; state.loans.push(l); state.selLoan = l.id;
+  save(); loanDraft = null; view = 'loan'; render();
+}
+function delLoan() {
+  var l = curLoan(); if (!l) return;
+  if (!confirm('Delete ' + l.name + '? This cannot be undone.')) return;
+  state.loans = state.loans.filter(function (x) { return x.id !== l.id; }); state.selLoan = null;
+  save(); view = 'home'; render();
+}
+function loanTick(i) {
+  var l = curLoan(); if (!l) return;
+  var w = document.getElementById('lsWrap'), st = w ? w.scrollTop : 0, sl = w ? w.scrollLeft : 0;
+  l.installments[i].paid = !l.installments[i].paid;
+  save(); render();
+  w = document.getElementById('lsWrap'); if (w) { w.scrollTop = st; w.scrollLeft = sl; }
+}
+function setLoanFilter(f) { loanFilter = f; render(); var w = document.getElementById('lsWrap'), n = document.getElementById('lsNext'); if (w && n && f === 'all') w.scrollTop = Math.max(0, n.offsetTop - 140); }
+function loanTag(l) { return '<span class="tag brown">Loan</span>'; }
+function loanHomeCard(l) {
+  var c = loanCalc(l);
+  return '<button class="acc" onclick="openLoan(\'' + l.id + '\')"><span class="tag brown">Loan</span><span class="nm">' + esc(l.name) + '</span>' +
+    '<span class="sub">EMI &#8377;' + fmt(c.emi) + ' &middot; ' + c.paidN + ' of ' + c.n + ' paid</span>' +
+    '<span class="val">&#8377;' + fmt(c.pLeft) + '</span><span class="sub" style="font-weight:600">principal left</span></button>';
+}
+function renderLoanAdd() {
+  var d = loanDraft, h = '<div class="row" style="margin-bottom:12px"><button class="small soft" onclick="go(\'home\')" aria-label="Back">&larr; Back</button><h1>Add loan</h1></div><div class="col f" style="gap:16px">' +
+    '<div><label style="font-size:13px;font-weight:600">Loan name</label><input type="text" value="' + esc(d.name) + '" oninput="loanDraft.name=this.value;loanDraft.nameEdited=true"></div>' +
+    '<div><label style="font-size:13px;font-weight:600">Loan type</label><div class="seg">' +
+    loanTypes.map(function (t) { return '<button style="font-size:14px;height:46px" class="' + (d.type === t ? 'on' : '') + '" onclick="setLoanType(\'' + t + '\')">' + t + '</button>'; }).join('') + '</div></div>';
+  if (!d.manual) {
+    h += '<div><label style="font-size:13px;font-weight:600">Loan schedule PDF</label>' +
+      '<button class="ghost" style="height:96px;border-color:#7A3B1D;color:#5A2A12;background:#FBF0E8" onclick="loanPickPdf()"' + (d.busy ? ' disabled' : '') + '>' +
+      (d.busy ? 'Reading ' + esc(d.fileName) + '...' : 'Choose PDF<br><span style="font-size:12px;font-weight:400">Repayment schedule from your bank</span>') + '</button>' +
+      (d.error ? '<div style="color:#A3261A;font-size:13px;margin-top:8px;line-height:1.4">' + esc(d.error) + '</div>' : '') +
+      '<div class="muted" style="margin-top:8px;line-height:1.4">The PDF is read on your phone only. It is not uploaded anywhere.</div></div>' +
+      '<button class="linkbtn" onclick="toggleLoanManual()">Or enter details yourself</button>';
+  } else {
+    h += '<div><label style="font-size:13px;font-weight:600">Loan amount (&#8377;)</label><input type="number" inputmode="decimal" value="' + esc(d.amount) + '" oninput="loanDraft.amount=this.value"></div>' +
+      '<div class="grid2"><div><label style="font-size:13px;font-weight:600">Interest % per year</label><input type="number" inputmode="decimal" value="' + esc(d.rate) + '" oninput="loanDraft.rate=this.value"></div>' +
+      '<div><label style="font-size:13px;font-weight:600">Total months</label><input type="number" inputmode="numeric" value="' + esc(d.months) + '" oninput="loanDraft.months=this.value"></div></div>' +
+      '<div><label style="font-size:13px;font-weight:600">Monthly EMI (&#8377;) &mdash; optional</label><input type="number" inputmode="decimal" value="' + esc(d.emi) + '" placeholder="Leave empty to calculate" oninput="loanDraft.emi=this.value"></div>' +
+      '<div><label style="font-size:13px;font-weight:600">First EMI date</label><input type="date" value="' + esc(d.first) + '" oninput="loanDraft.first=this.value"></div>' +
+      '<div class="muted" style="line-height:1.4">EMIs with a date up to today are ticked as paid. You can change any tick later.</div>' +
+      '<button style="height:54px;font-size:17px;background:#7A3B1D" onclick="saveLoanFromDraft(true)">Save loan</button>' +
+      '<button class="linkbtn" onclick="toggleLoanManual()">Upload PDF instead</button>';
+  }
+  return h + '</div>';
+}
+function renderLoanReview() {
+  var d = loanDraft, r = d.parsed, ins = r.installments, td = todayStr();
+  var paidN = ins.filter(function (x) { return x.paid; }).length, next = null;
+  ins.forEach(function (x) { if (!x.paid && !next) next = x; });
+  var sp = ins.reduce(function (a, x) { return a + x.prin; }, 0), si = ins.reduce(function (a, x) { return a + x.int; }, 0);
+  var warn = r.sanction > 0 && Math.abs(sp - r.sanction) > 5;
+  function row(k, v) { return '<div class="row between" style="padding:9px 0;border-bottom:1px solid #F0E6C8"><span class="muted" style="font-size:13px">' + k + '</span><b style="font-size:14px;text-align:right">' + v + '</b></div>'; }
+  return '<div class="row" style="margin-bottom:12px"><button class="small soft" onclick="view=\'loanAdd\';render()" aria-label="Back">&larr; Back</button><h1>Check details</h1></div>' +
+    '<div class="muted" style="margin-bottom:10px;line-height:1.4">Read from your PDF. Please check, then save.</div>' +
+    '<div class="card" style="padding:4px 14px">' +
+    row('Loan name', esc(d.name)) + row('Type', d.type) + (r.lender ? row('Lender', esc(r.lender)) : '') + (r.agreement ? row('Agreement no.', '&bull;&bull;&bull;&bull; ' + esc(r.agreement.slice(-4))) : '') +
+    row('Loan amount', rs(r.sanction || sp)) + row('Interest rate now', (next ? next.rate : r.rateNow) + '%') + row('EMI', rs(next ? next.emi : ins[ins.length - 1].emi)) +
+    row('Installments', ins.length) + row('First EMI', fmtDate(ins[0].due)) + row('Last EMI', fmtDate(ins[ins.length - 1].due)) + row('Total interest', rs(si)) +
+    row('Already paid', paidN + ' installments') + '</div>' +
+    (warn ? '<div class="card" style="background:#FDECEA;border-color:#F3C2BC;color:#A3261A;font-size:13px;line-height:1.4">The principal in the schedule does not add up to the loan amount. Some rows may not have been read. You can still save, but please check.</div>' : '') +
+    '<div class="muted" style="margin:6px 0 14px;line-height:1.4">Paid installments are those with Total Amount Due 0 and a date up to today. Only the last 4 digits of the agreement number are kept. Your name is not saved.</div>' +
+    '<button style="height:54px;font-size:17px;width:100%;background:#7A3B1D" onclick="saveLoanFromDraft(false)">Save loan</button>';
+}
+function renderLoan() {
+  var l = curLoan(); if (!l) { view = 'home'; return renderHome(); }
+  var c = loanCalc(l), pct = c.n ? Math.round(c.paidN * 1000 / c.n) / 10 : 0, ins = l.installments;
+  function row(k, v) { return '<div class="row between" style="padding:9px 0;border-bottom:1px solid #F0E6C8"><span class="muted" style="font-size:13px">' + k + '</span><b style="font-size:14px;text-align:right">' + v + '</b></div>'; }
+  return '<div class="row between" style="margin-bottom:10px"><div class="row"><button class="small soft" onclick="go(\'home\')" aria-label="Back">&larr; Back</button><div><h1>' + esc(l.name) + '</h1><div class="muted" style="font-size:11px">' + esc(l.lender || (l.type + ' loan')) + (c.rate ? ' &middot; ' + c.rate + '% now' : '') + '</div></div></div>' +
+    '<button class="small soft" onclick="pdfLoan()">PDF</button></div>' +
+    '<button onclick="loanFilter=\'upcoming\';view=\'loanSched\';render()" aria-label="Open loan details" style="width:100%;height:auto;text-align:left;font-weight:400;background:#2B2113;color:#FFF9EC;border-radius:16px;padding:16px;display:flex;flex-direction:column;gap:12px">' +
+    '<div class="row between" style="align-items:flex-end;width:100%"><div><div style="font-size:12px;color:#E5D3A8">Principal left</div><div class="big">&#8377;' + fmt(c.pLeft) + '</div></div>' +
+    '<div style="text-align:right"><div style="font-size:12px;color:#E5D3A8">' + (c.next ? 'Next EMI &middot; ' + fmtDate(c.next.due) : 'Loan finished') + '</div><div style="font-size:18px;font-weight:700">' + (c.next ? '&#8377;' + fmt(dueAmt(c.next)) : '&#10003;') + '</div></div></div>' +
+    '<div style="width:100%"><div style="height:8px;border-radius:4px;background:#4A3D27;overflow:hidden"><div style="width:' + pct + '%;height:100%;background:#E8B84A"></div></div>' +
+    '<div style="font-size:12px;color:#E5D3A8;margin-top:6px">' + c.paidN + ' of ' + c.n + ' installments paid &middot; ' + (c.n - c.paidN) + ' left</div></div>' +
+    '<div style="height:1px;background:#4A3D27;width:100%"></div>' +
+    '<div class="row between" style="width:100%;align-items:flex-start"><div><div style="font-size:12px;color:#E5D3A8">Principal paid</div><div style="font-size:15px;font-weight:600">&#8377;' + fmt(c.pPaid) + '</div></div>' +
+    '<div style="text-align:center"><div style="font-size:12px;color:#E5D3A8">Interest paid</div><div style="font-size:15px;font-weight:600">&#8377;' + fmt(c.intPaid) + '</div></div>' +
+    '<div style="text-align:right"><div style="font-size:12px;color:#E5D3A8">Left to pay</div><div style="font-size:15px;font-weight:600">&#8377;' + fmt(c.left) + '</div></div></div>' +
+    '<div style="width:100%;text-align:center;border-radius:8px;background:#3A2E1B;font-size:13px;font-weight:700;color:#F8E3A3;padding:7px 0">View loan details &rsaquo;</div></button>' +
+    '<div class="card" style="margin-top:14px;padding:4px 14px">' + row('Loan amount', rs(c.sanction)) + row('Monthly EMI', rs(c.emi)) + (c.rate ? row('Interest rate now', c.rate + '%') : '') +
+    row('First EMI', ins.length ? fmtDate(ins[0].due) : '-') + row('Last EMI', ins.length ? fmtDate(ins[ins.length - 1].due) : '-') + row('Total interest', rs(c.totInt)) +
+    (l.agreement ? row('Agreement no.', '&bull;&bull;&bull;&bull; ' + esc(l.agreement)) : '') + '</div>' +
+    '<div style="text-align:center;margin-top:10px"><button class="danger" onclick="delLoan()">Delete this loan</button></div>';
+}
+function renderLoanSched() {
+  var l = curLoan(); if (!l) { view = 'home'; return renderHome(); }
+  var c = loanCalc(l), ins = l.installments, rows = '';
+  ins.forEach(function (x, i) {
+    if (loanFilter === 'upcoming' && x.paid) return;
+    if (loanFilter === 'paid' && !x.paid) return;
+    var isNext = c.next === x, cls = x.paid ? 'paid' : (isNext ? 'next' : 'due');
+    rows += '<tr class="' + cls + '"' + (isNext ? ' id="lsNext"' : '') + '><td class="s1"><input class="cb" type="checkbox"' + (x.paid ? ' checked' : '') + ' onchange="loanTick(' + i + ')" aria-label="Installment ' + x.n + ' paid"></td>' +
+      '<td class="s2">' + fmtDate(x.due) + '</td><td>&#8377;' + fmt(x.open) + '</td><td>&#8377;' + fmt(x.prin) + '</td><td>&#8377;' + fmt(x.int) + '</td><td>&#8377;' + fmt(x.close) + '</td><td>&#8377;' + fmt(dueAmt(x)) + '</td></tr>';
+  });
+  if (!rows) rows = '<tr><td colspan="7" style="text-align:center;padding:30px;height:auto">Nothing here</td></tr>';
+  function chip(f, t) { return '<button class="' + (loanFilter === f ? 'on' : '') + '" onclick="setLoanFilter(\'' + f + '\')">' + t + '</button>'; }
+  return '<div class="row" style="margin-bottom:8px"><button class="small soft" onclick="view=\'loan\';render()" aria-label="Back">&larr; Back</button><div><h1>Loan details</h1><div class="muted" style="font-size:11px">' + esc(l.name) + ' &middot; ' + c.n + ' installments</div></div></div>' +
+    '<div class="chips">' + chip('upcoming', 'Upcoming') + chip('paid', 'Paid') + chip('all', 'All') + '</div>' +
+    '<div id="lsWrap" class="lswrap"><table class="lt"><thead><tr><th class="s1">Paid</th><th class="s2">Due date</th><th>Opening principal</th><th>Principal</th><th>Interest</th><th>Closing principal</th><th>Total amount due</th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
+    '<div class="muted" style="margin-top:8px;line-height:1.4">Slide the table sideways to see all columns. Tick the box when you pay an EMI.</div>';
+}
+function pdfLoan() {
+  var l = curLoan(); if (!l) return;
+  var c = loanCalc(l);
+  var t = '<table><tr><th>#</th><th>Due date</th><th class="r">Opening principal</th><th class="r">Principal</th><th class="r">Interest</th><th class="r">Closing principal</th><th class="r">Total amount due</th><th>Paid</th></tr>';
+  l.installments.forEach(function (x) {
+    t += '<tr' + (x.paid ? ' style="background:#EEF5EC"' : '') + '><td>' + x.n + '</td><td>' + fmtDate(x.due) + '</td><td class="r">' + rs(x.open) + '</td><td class="r">' + rs(x.prin) + '</td><td class="r">' + rs(x.int) + '</td><td class="r">' + rs(x.close) + '</td><td class="r">' + rs(dueAmt(x)) + '</td><td>' + (x.paid ? 'Yes' : '') + '</td></tr>';
+  });
+  t += '</table>';
+  var body = '<div style="margin-top:14px"><div class="sub">' + esc(l.type) + ' loan' + (l.lender ? ' &middot; ' + esc(l.lender) : '') + '</div><div style="font-size:18px;font-weight:700">' + esc(l.name) + '</div></div>' +
+    '<div class="sum"><div><span>Loan amount</span><span>' + rs(c.sanction) + '</span></div><div><span>Installments paid</span><span>' + c.paidN + ' of ' + c.n + '</span></div>' +
+    '<div><span>Principal paid</span><span>' + rs(c.pPaid) + '</span></div><div><span>Interest paid</span><span>' + rs(c.intPaid) + '</span></div><div><span>Left to pay</span><span>' + rs(c.left) + '</span></div>' +
+    '<div class="big"><span>Principal left</span><span>' + rs(c.pLeft) + '</span></div></div>' + t;
+  sendPdf(pdfWrap('Loan Statement', '', body), l.name);
+}
 
 load();
 function startView() {

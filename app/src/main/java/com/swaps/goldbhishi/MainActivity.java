@@ -4,7 +4,9 @@ import android.app.Activity;
 import android.content.Intent;
 import android.content.IntentSender;
 import android.content.SharedPreferences;
+import android.net.Uri;
 import android.os.Bundle;
+import android.webkit.ValueCallback;
 import android.app.AlertDialog;
 import android.app.KeyguardManager;
 import android.content.Context;
@@ -41,6 +43,8 @@ public class MainActivity extends Activity {
 
     private static final int REQ_AUTH = 1001;
     private static final int REQ_LOCK = 1002;
+    private static final int REQ_FILE = 1003;
+    private ValueCallback<Uri[]> fileCallback;
     private static final long RELOCK_MS = 60000;
     private static final String DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.appdata";
     private static final String FILE_NAME = "gold-bhishi-data.json";
@@ -83,6 +87,24 @@ public class MainActivity extends Activity {
                         .setNegativeButton("Cancel", (d, w) -> result.cancel())
                         .setOnCancelListener(d -> result.cancel())
                         .show();
+                return true;
+            }
+
+            @Override
+            public boolean onShowFileChooser(WebView view, ValueCallback<Uri[]> cb, FileChooserParams params) {
+                if (fileCallback != null) { fileCallback.onReceiveValue(null); }
+                fileCallback = cb;
+                try {
+                    Intent i = new Intent(Intent.ACTION_GET_CONTENT);
+                    i.addCategory(Intent.CATEGORY_OPENABLE);
+                    i.setType("application/pdf");
+                    suppressLock = true;
+                    startActivityForResult(Intent.createChooser(i, "Choose loan schedule PDF"), REQ_FILE);
+                } catch (Exception e) {
+                    fileCallback = null;
+                    cb.onReceiveValue(null);
+                    return false;
+                }
                 return true;
             }
         });
@@ -172,6 +194,13 @@ public class MainActivity extends Activity {
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == REQ_FILE) {
+            if (fileCallback != null) {
+                fileCallback.onReceiveValue(WebChromeClient.FileChooserParams.parseResult(resultCode, data));
+                fileCallback = null;
+            }
+            return;
+        }
         if (requestCode == REQ_LOCK) {
             js("onPhoneResult", resultCode == RESULT_OK ? "1" : "0");
             return;
