@@ -1,6 +1,9 @@
 package com.swaps.goldbhishi;
 
 import android.app.Activity;
+import android.content.ActivityNotFoundException;
+import android.content.ClipData;
+import android.content.ClipboardManager;
 import android.content.Intent;
 import android.content.IntentSender;
 import android.content.SharedPreferences;
@@ -45,6 +48,7 @@ public class MainActivity extends Activity {
     private static final int REQ_LOCK = 1002;
     private static final int REQ_FILE = 1003;
     private ValueCallback<Uri[]> fileCallback;
+    private String pendingShare = "";
     private static final long RELOCK_MS = 60000;
     private static final String DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.appdata";
     private static final String FILE_NAME = "gold-bhishi-data.json";
@@ -109,7 +113,28 @@ public class MainActivity extends Activity {
             }
         });
         web.addJavascriptInterface(new Bridge(), "Android");
+        readLink(getIntent(), true);
         web.loadUrl("file:///android_asset/index.html");
+    }
+
+    // A link like apnakhata://add?d=... (opened from the web page the WhatsApp link goes to).
+    private void readLink(Intent in, boolean cold) {
+        if (in == null) return;
+        Uri u = in.getData();
+        if (u != null && "apnakhata".equals(u.getScheme())) {
+            String d = u.getQueryParameter("d");
+            if (d != null && d.length() > 0 && d.length() < 20000) {
+                if (cold) pendingShare = d; else js("onShareLink", d);
+            }
+            in.setData(null);
+        }
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        readLink(intent, false);
     }
 
     @Override
@@ -507,6 +532,66 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public void signOut() {
             prefs().edit().remove("email").apply();
+        }
+
+
+        @JavascriptInterface
+        public String takeShare() {
+            String d = pendingShare;
+            pendingShare = "";
+            return d;
+        }
+
+        @JavascriptInterface
+        public void copyText(final String text) {
+            runOnUiThread(() -> {
+                ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+                if (cm != null) cm.setPrimaryClip(ClipData.newPlainText("Apna Khata", text));
+            });
+        }
+
+        @JavascriptInterface
+        public void shareText(final String text, final String mode, final String phone) {
+            runOnUiThread(() -> {
+                suppressLock = true;
+                String digits = phone == null ? "" : phone.replaceAll("[^0-9]", "");
+                if (digits.length() == 11 && digits.startsWith("0")) digits = digits.substring(1);
+                if (digits.length() == 10) digits = "91" + digits;
+                try {
+                    if ("whatsapp".equals(mode)) {
+                        Intent i;
+                        if (digits.length() >= 11) {
+                            i = new Intent(Intent.ACTION_VIEW, Uri.parse("https://wa.me/" + digits + "?text="
+                                    + URLEncoder.encode(text, "UTF-8").replace("+", "%20")));
+                        } else {
+                            i = new Intent(Intent.ACTION_SEND);
+                            i.setType("text/plain");
+                            i.putExtra(Intent.EXTRA_TEXT, text);
+                        }
+                        String[] pk = {"com.whatsapp", "com.whatsapp.w4b"};
+                        for (String pkg : pk) {
+                            try {
+                                i.setPackage(pkg);
+                                startActivity(i);
+                                return;
+                            } catch (ActivityNotFoundException e) { /* try next */ }
+                        }
+                        // WhatsApp is not installed: fall through to the normal share sheet.
+                    } else if ("sms".equals(mode)) {
+                        Intent i = new Intent(Intent.ACTION_SENDTO, Uri.parse("smsto:" + digits));
+                        i.putExtra("sms_body", text);
+                        startActivity(i);
+                        return;
+                    }
+                    Intent i = new Intent(Intent.ACTION_SEND);
+                    i.setType("text/plain");
+                    i.putExtra(Intent.EXTRA_TEXT, text);
+                    startActivity(Intent.createChooser(i, "Share khata"));
+                } catch (Exception e) {
+                    suppressLock = false;
+                    js("onShareError", "Could not open that app");
+                }
+            });
         }
 
         @JavascriptInterface

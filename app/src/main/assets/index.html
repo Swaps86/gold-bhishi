@@ -274,6 +274,8 @@ function go(v) {
 window.goBack = function () {
   if (view === 'lock' || view === 'setlock' || view === 'signin') return false;
   if (view === 'khataEdit') { view = 'khata'; render(); return true; }
+  if (view === 'khataShare') { view = 'khata'; render(); return true; }
+  if (view === 'import') { importDraft = null; view = 'home'; render(); return true; }
   if (view === 'loanSched') { view = 'loan'; render(); return true; }
   if (view === 'loanReview') { view = 'loanAdd'; render(); return true; }
   if (view !== 'home') { view = 'home'; render(); return true; }
@@ -507,6 +509,7 @@ function renderKhata() {
        (k.rate > 0 ? '<div style="text-align:center"><div class="lbl">Interest</div><b>&#8377;' + fmt(c.interest) + '</b></div>' : '') +
        '<div style="text-align:right"><div class="lbl">Total you got</div><b>&#8377;' + fmt(c.got) + '</b></div></div></div>';
 
+  h += '<button class="got" style="width:100%;height:52px;font-size:16px;display:flex;align-items:center;justify-content:center;gap:8px;margin-bottom:4px" onclick="openShare()"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="M8.6 13.5l6.8 4M15.4 6.5l-6.8 4"/></svg>Share khata with ' + esc(k.name) + '</button>';
   h += '<div class="row between" style="margin:14px 4px 8px"><h2>Entries</h2><span class="muted">Newest first &middot; tap to edit</span></div>';
   if (!k.entries.length) h += '<div class="card muted" style="text-align:center">No entries yet.</div>';
   sortedEntries(k).forEach(function (x) {
@@ -813,11 +816,14 @@ function renderBackup() {
     '<button onclick="exportData()">Share backup</button></div>' +
     '<div class="card"><h2>Restore from backup</h2><p class="muted" style="font-size:13px;line-height:1.5">Paste the backup text here. This replaces the data on this phone.</p>' +
     '<textarea id="imp" placeholder="Paste backup text"></textarea><div class="pad"></div><button onclick="importData()">Restore</button></div>' +
+    '<div class="card"><h2>Add a khata from a message</h2><p class="muted" style="font-size:13px;line-height:1.5">If the link in WhatsApp does not open the app, copy the whole message and paste it here.</p>' +
+    '<textarea id="shmsg" placeholder="Paste the message"></textarea><div class="pad"></div><button onclick="importFromMessage()">Add khata</button></div>' +
     '<p class="muted" style="line-height:1.5">Backup text works even without Google sign-in.</p>';
 }
 
 function render() {
   if (!state.loans) state.loans = [];
+  if (pendingShare && view !== 'lock' && view !== 'setlock' && view !== 'signin') tryImport();
   var m = document.getElementById('main');
   document.querySelector('nav').style.display = (view === 'signin' || view === 'lock' || view === 'setlock') ? 'none' : 'flex';
   if (view === 'signin') m.innerHTML = renderSignIn();
@@ -830,6 +836,8 @@ function render() {
   else if (view === 'loanReview') m.innerHTML = renderLoanReview();
   else if (view === 'loan') m.innerHTML = renderLoan();
   else if (view === 'loanSched') m.innerHTML = renderLoanSched();
+  else if (view === 'khataShare') m.innerHTML = renderShare();
+  else if (view === 'import') m.innerHTML = renderImport();
   else if (view === 'khataEdit') m.innerHTML = renderKhataEdit();
   else if (view === 'lock') m.innerHTML = renderLock();
   else if (view === 'setlock') m.innerHTML = renderSetLock();
@@ -1318,6 +1326,139 @@ function pdfLoan() {
   sendPdf(pdfWrap('Loan Statement', '', body), l.name);
 }
 
+/* ---------- Share khata + add from link ---------- */
+var SHARE_URL = 'https://swaps86.github.io/gold-bhishi/a#';
+var shareMode = 'full', pendingShare = null, importDraft = null;
+function b64e(s) { return btoa(unescape(encodeURIComponent(s))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); }
+function b64d(s) { s = String(s).replace(/-/g, '+').replace(/_/g, '/'); while (s.length % 4) s += '='; return decodeURIComponent(escape(atob(s))); }
+function r2(n) { return Math.round(n * 100) / 100; }
+/* items = what goes into the message/link, oldest first: {date,type:'g'|'r',amount,note} (g = I gave, r = I got) */
+function shareItems(k, mode) {
+  var N = mode === 'full' ? 40 : (mode === 'last5' ? 5 : 0);
+  var es = k.entries.map(function (e, i) { return { e: e, i: i }; }).sort(function (a, b) { return a.e.date < b.e.date ? -1 : a.e.date > b.e.date ? 1 : a.i - b.i; }).map(function (x) { return x.e; });
+  var keep = N > 0 ? es.slice(-N) : [], older = es.slice(0, es.length - keep.length), items = [];
+  if (older.length) {
+    var net = 0; older.forEach(function (e) { net += (e.type === 'gave' ? 1 : -1) * e.amount; });
+    if (Math.abs(net) >= 0.5) items.push({ date: keep.length ? keep[0].date : older[older.length - 1].date, type: net > 0 ? 'g' : 'r', amount: r2(Math.abs(net)), note: 'Earlier entries' });
+  }
+  keep.forEach(function (e) { items.push({ date: e.date, type: e.type === 'gave' ? 'g' : 'r', amount: r2(e.amount), note: (e.note || '').slice(0, 40) }); });
+  var c = kCalc(k);
+  if (k.rate > 0 && c.interest >= 1) items.push({ date: todayStr(), type: 'g', amount: Math.round(c.interest), note: 'Interest ' + k.rate + '% till today' });
+  return items;
+}
+function shareTotals(items) {
+  var g = 0, r = 0; items.forEach(function (x) { if (x.type === 'g') g += x.amount; else r += x.amount; });
+  return { g: g, r: r, bal: g - r };
+}
+function rsText(n) { return 'Rs ' + fmt(n); }
+function buildShareText(k, mode, plain, short) {
+  var items = shareItems(k, mode), t = shareTotals(items);
+  var b = function (s) { return plain ? s : '*' + s + '*'; };
+  var L = [b('Apna Khata - Statement'), 'Account: ' + k.name, 'As on ' + fmtDate(todayStr()), ''];
+  if (mode !== 'balance') {
+    items.forEach(function (x) { L.push(fmtDate(x.date) + ' - ' + (x.type === 'g' ? 'I gave' : 'I got') + ': ' + rsText(x.amount) + (x.note ? ' (' + x.note + ')' : '')); });
+    L.push('', 'Total I gave: ' + rsText(t.g), 'Total I got: ' + rsText(t.r));
+  }
+  L.push(b(Math.abs(t.bal) < 0.5 ? 'Account is settled' : (t.bal > 0 ? 'Balance: you will pay me ' + rsText(t.bal) : 'Balance: I will pay you ' + rsText(-t.bal))));
+  L.push('', 'Have the Apna Khata app? Tap to add this to your khata:', short ? SHARE_URL + shareLink(k, mode).slice(0, 18) + '...' : SHARE_URL + shareLink(k, mode), '', 'Sent from Apna Khata app');
+  return L.join('\n');
+}
+function shareLink(k, mode) {
+  var p = { v: 1, n: (state.myName || '').trim().slice(0, 40) || 'Friend', e: shareItems(k, mode).map(function (x) { return [x.date, x.type, x.amount, x.note]; }) };
+  return b64e(JSON.stringify(p));
+}
+function curShareKhata() { return curKhata(); }
+function openShare() { shareMode = 'full'; view = 'khataShare'; render(); }
+function setShareMode(m) { shareMode = m; var y = document.getElementById('main').scrollTop; render(); document.getElementById('main').scrollTop = y; }
+function renderShare() {
+  var k = curKhata(); if (!k) { view = 'home'; return renderHome(); }
+  function seg(m, t) { return '<button class="' + (shareMode === m ? 'on' : '') + '" style="font-size:13px;height:44px" onclick="setShareMode(\'' + m + '\')">' + t + '</button>'; }
+  var prev = esc(buildShareText(k, shareMode, false, true)).replace(/\*(.+?)\*/g, '<b>$1</b>');
+  var n = k.entries.length;
+  return '<div class="row" style="margin-bottom:10px"><button class="small soft" onclick="view=\'khata\';render()" aria-label="Back">&larr; Back</button><div><h1>Share khata</h1><div class="muted" style="font-size:11px">' + esc(k.name) + ' &middot; sent as a normal text message</div></div></div>' +
+    '<div class="f" style="margin-bottom:12px"><label style="font-size:13px;font-weight:600">Your name (she/he will see this)</label><input type="text" id="myname" value="' + esc(state.myName || '') + '" placeholder="e.g. Swapnil" oninput="state.myName=this.value" onchange="save()"></div>' +
+    '<div class="seg" style="margin-bottom:12px;gap:8px">' + seg('full', 'Full khata') + seg('last5', 'Last 5 entries') + seg('balance', 'Balance only') + '</div>' +
+    (shareMode === 'full' && n > 40 ? '<div class="muted" style="margin:-4px 0 10px;line-height:1.4">You have ' + n + ' entries. The last 40 are listed; older ones are added up into one &ldquo;Earlier entries&rdquo; line so the balance stays correct.</div>' : '') +
+    '<div style="font-size:13px;font-weight:600;color:#4A3D27;margin-bottom:6px">Message preview</div>' +
+    '<div style="background:#E3F1DC;border:1px solid #C5DFBA;border-radius:14px 14px 4px 14px;padding:12px 14px;white-space:pre-wrap;font-size:13.5px;line-height:1.5;overflow-wrap:anywhere">' + prev + '</div>' +
+    '<div class="sticky" style="flex-direction:column;gap:8px"><button style="height:52px;font-size:16px;background:#2F6B2F;flex:none" onclick="shareSend(\'whatsapp\')">Send on WhatsApp</button>' +
+    '<div class="row" style="gap:8px"><button class="soft" style="flex:1;height:44px;font-size:14px" onclick="shareSend(\'sms\')">SMS</button><button class="soft" style="flex:1;height:44px;font-size:14px" onclick="shareSend(\'other\')">Other apps</button><button class="soft" style="flex:1;height:44px;font-size:14px" onclick="shareSend(\'copy\')">Copy</button></div>' +
+    '<div class="muted" style="text-align:center;line-height:1.35;font-size:11px">' + (k.phone ? 'WhatsApp and SMS open the chat with ' + esc(k.phone) + '.' : 'No phone saved for ' + esc(k.name) + ', so you pick the contact yourself. Save a number with &#9998; to open the chat directly.') + '</div></div>';
+}
+function shareSend(how) {
+  var k = curKhata(); if (!k) return;
+  if (!(state.myName || '').trim()) { alert('Please type your name first'); var el = document.getElementById('myname'); if (el) el.focus(); return; }
+  save();
+  var plain = how !== 'whatsapp', mode = (how === 'sms' && shareMode === 'full') ? 'last5' : shareMode;
+  var text = buildShareText(k, mode, how === 'sms', false);
+  if (window.Android) {
+    if (how === 'copy') { Android.copyText(text); alert('Copied. Paste it in any chat.'); }
+    else Android.shareText(text, how, k.phone || '');
+  } else { window.__shared = { how: how, text: text }; alert('Sharing works inside the Android app'); }
+}
+window.onShareError = function (m) { alert(m || 'Could not open that app'); };
+/* ----- receiving ----- */
+function parseShare(d) {
+  if (!d || d.length > 20000) return null;
+  try {
+    var o = JSON.parse(b64d(d));
+    if (!o || o.v !== 1 || !Array.isArray(o.e) || o.e.length > 120) return null;
+    var items = [];
+    for (var i = 0; i < o.e.length; i++) {
+      var x = o.e[i], a = Number(x[2]);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(String(x[0])) || (x[1] !== 'g' && x[1] !== 'r') || !isFinite(a) || a <= 0 || a > 1e11) return null;
+      items.push({ date: x[0], type: x[1], amount: a, note: String(x[3] || '').slice(0, 60) });
+    }
+    return { name: String(o.n || 'Friend').slice(0, 40), items: items };
+  } catch (e) { return null; }
+}
+window.onShareLink = function (d) { pendingShare = d; render(); };
+function tryImport() {
+  var d = pendingShare; pendingShare = null;
+  var p = parseShare(d);
+  if (!p) { alert('This link is not valid or is incomplete'); return false; }
+  importDraft = { name: p.name, items: p.items, from: p.name };
+  view = 'import'; return true;
+}
+function renderImport() {
+  var d = importDraft; if (!d) { view = 'home'; return renderHome(); }
+  var t = shareTotals(d.items), bal = -t.bal;           /* from the receiver's side: positive = you will get */
+  var rows = d.items.map(function (x) {
+    var gave = x.type === 'r';                           /* sender got = receiver gave */
+    return '<div class="card" style="margin-bottom:8px"><div class="row between"><div><b>' + fmtDate(x.date) + '</b><div class="muted">' + esc(x.note || '') + '</div></div>' +
+      '<div style="text-align:right"><div style="font-size:16px;font-weight:700;color:' + (gave ? '#A3261A' : '#2F6B2F') + '">&#8377;' + fmt(x.amount) + '</div><div style="font-size:12px;font-weight:600;color:' + (gave ? '#A3261A' : '#2F6B2F') + '">' + (gave ? '&#9650; You gave' : '&#9660; You got') + '</div></div></div></div>';
+  }).join('');
+  return '<div class="row" style="margin-bottom:10px"><button class="small soft" onclick="importDraft=null;go(\'home\')" aria-label="Back">&larr; Back</button><div><h1>Add to your khata</h1><div class="muted" style="font-size:11px">Opened from a shared link</div></div></div>' +
+    '<div class="card" style="background:#FFF1D0;border-color:#E8D08A;font-size:13px;line-height:1.45"><b>' + esc(d.from) + '</b> sent you a khata statement. Check it, then add it to your Apna Khata.</div>' +
+    '<div class="dark"><div class="lbl">' + (Math.abs(bal) < 0.5 ? 'Settled' : (bal > 0 ? 'You will get' : 'You will give')) + '</div><div class="big">&#8377;' + fmt(Math.abs(bal)) + '</div>' +
+    '<div style="height:1px;background:#4A3D27;margin:12px 0"></div><div class="row between"><div><div class="lbl">Total you gave</div><b>&#8377;' + fmt(t.r) + '</b></div><div style="text-align:right"><div class="lbl">Total you got</div><b>&#8377;' + fmt(t.g) + '</b></div></div></div>' +
+    '<div class="muted" style="margin:6px 4px 8px">Entries &mdash; shown from your side</div>' + (rows || '<div class="card muted" style="text-align:center">No entries, balance only.</div>') +
+    '<div class="f" style="margin:12px 0 6px"><label style="font-size:13px;font-weight:600">Save in my khata as</label><input type="text" value="' + esc(d.name) + '" oninput="importDraft.name=this.value"></div>' +
+    '<div class="muted" style="line-height:1.4;margin-bottom:6px">Already have this name in your khata? Its entries are replaced by this statement, nothing is added twice. This is a copy &mdash; it does not change later by itself.</div>' +
+    '<div class="sticky" style="flex-direction:column;gap:6px"><button style="height:52px;font-size:16px;flex:none" onclick="doImport()">Add to my Apna Khata</button><button class="linkbtn" style="flex:none" onclick="importDraft=null;go(\'home\')">Not now</button></div>';
+}
+function doImport() {
+  var d = importDraft; if (!d) return;
+  var nm = (d.name || '').trim(); if (!nm) { alert('Enter a name'); return; }
+  var ents = d.items.map(function (x) { return { type: x.type === 'g' ? 'got' : 'gave', amount: x.amount, date: x.date, note: x.note }; });
+  var k = findKhataByName(nm);
+  if (k) {
+    if (!confirm('"' + k.name + '" is already in your khata with ' + k.entries.length + ' entries. Replace them with this statement?\n\n(To keep both, press Cancel and change the name.)')) return;
+    k.entries = ents;
+  } else {
+    k = { id: 'k' + Date.now().toString(36), name: nm, phone: '', rate: 0, entries: ents };
+    state.khatas.push(k);
+  }
+  state.selKhata = k.id; kEditing = -1; importDraft = null;
+  save(); view = 'khata'; render();
+}
+function importFromMessage() {
+  var t = (document.getElementById('shmsg').value || '');
+  var m = /\/a#([A-Za-z0-9_-]{8,})/.exec(t);
+  if (!m) { alert('No Apna Khata link found in this text'); return; }
+  pendingShare = m[1]; render();
+}
+
 load();
 function startView() {
   if (!window.Android) return 'home';
@@ -1327,6 +1468,7 @@ function startView() {
   return lockMode === '' ? 'setlock' : 'home';
 }
 if (window.Android) {
+  try { var ps = Android.takeShare ? Android.takeShare() : ''; if (ps) pendingShare = ps; } catch (e) {}
   email = Android.getEmail() || '';
   lockMode = Android.lockMode() || '';
 }

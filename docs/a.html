@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Add to Apna Khata</title>
+<style>
+body{margin:0;font-family:system-ui,-apple-system,Roboto,sans-serif;background:#FFF9EC;color:#2B2113}
+main{max-width:420px;margin:0 auto;padding:40px 20px;text-align:center}
+.logo{width:72px;height:72px;border-radius:36px;background:#8A5F00;margin:0 auto 16px;display:flex;align-items:center;justify-content:center}
+h1{font-size:24px;margin:0 0 8px}
+p{font-size:15px;line-height:1.5;color:#4A3D27;margin:8px 0}
+a.btn{display:flex;align-items:center;justify-content:center;height:56px;border-radius:14px;background:#8A5F00;color:#fff;font-size:17px;font-weight:700;text-decoration:none;margin:22px 0 10px}
+.note{background:#FFF1D0;border:1px solid #E8D08A;border-radius:12px;padding:12px 14px;font-size:14px;text-align:left;margin-top:18px;display:none}
+small{color:#6B5A3A;font-size:12px}
+</style>
+</head>
+<body>
+<main>
+  <div class="logo"><svg width="38" height="38" viewBox="0 0 24 24" fill="none" stroke="#FFF9EC" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 15l2-8h8l2 8z"/><path d="M3 19h18"/></svg></div>
+  <h1>Add to Apna Khata</h1>
+  <p id="msg">Someone sent you a khata statement. Tap the button to add it to your Apna Khata app.</p>
+  <a class="btn" id="open" href="#">Open in Apna Khata</a>
+  <div class="note" id="noapp"><b>The app did not open?</b><br>Apna Khata must be installed on your Android phone. Ask the person who sent this for the app file (APK). Already installed? Tap the button again, or open this page in Chrome.</div>
+  <div class="note" id="other"><b>Use an Android phone.</b><br>This link opens in the Apna Khata app on Android.</div>
+  <p><small>Your khata details stay inside this link. They are not saved on any server.</small></p>
+</main>
+<script>
+(function () {
+  var data = (location.hash || '').replace(/^#/, '');
+  var q = new URLSearchParams(location.search);
+  var isAndroid = /Android/i.test(navigator.userAgent);
+  var ok = /^[A-Za-z0-9_-]{8,20000}$/.test(data);
+  var btn = document.getElementById('open');
+  if (!ok) {
+    document.getElementById('msg').textContent = 'This link is incomplete. Ask the sender to share it again.';
+    btn.style.display = 'none';
+    return;
+  }
+  var fallback = location.origin + location.pathname + '?noapp=1#' + data;
+  var intentUrl = 'intent://add?d=' + data + '#Intent;scheme=apnakhata;package=com.swaps.goldbhishi;S.browser_fallback_url=' + encodeURIComponent(fallback) + ';end';
+  btn.href = isAndroid ? intentUrl : '#';
+  if (!isAndroid) { document.getElementById('other').style.display = 'block'; btn.style.display = 'none'; return; }
+  if (q.get('noapp')) { document.getElementById('noapp').style.display = 'block'; return; }
+  setTimeout(function () { location.href = intentUrl; }, 400);
+})();
+</script>
+</body>
+</html>
