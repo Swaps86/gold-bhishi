@@ -9,6 +9,9 @@ import android.content.IntentSender;
 import android.content.SharedPreferences;
 import android.net.Uri;
 import android.os.Bundle;
+import androidx.core.content.FileProvider;
+import java.io.File;
+import java.io.FileOutputStream;
 import android.webkit.ValueCallback;
 import android.app.AlertDialog;
 import android.app.KeyguardManager;
@@ -101,9 +104,11 @@ public class MainActivity extends Activity {
                 try {
                     Intent i = new Intent(Intent.ACTION_GET_CONTENT);
                     i.addCategory(Intent.CATEGORY_OPENABLE);
-                    i.setType("application/pdf");
+                    String[] acc = params.getAcceptTypes();
+                    boolean pdf = acc != null && acc.length > 0 && acc[0] != null && acc[0].contains("pdf");
+                    i.setType(pdf ? "application/pdf" : "*/*");
                     suppressLock = true;
-                    startActivityForResult(Intent.createChooser(i, "Choose loan schedule PDF"), REQ_FILE);
+                    startActivityForResult(Intent.createChooser(i, "Choose file"), REQ_FILE);
                 } catch (Exception e) {
                     fileCallback = null;
                     cb.onReceiveValue(null);
@@ -113,28 +118,44 @@ public class MainActivity extends Activity {
             }
         });
         web.addJavascriptInterface(new Bridge(), "Android");
-        readLink(getIntent(), true);
+        readShare(getIntent(), true);
         web.loadUrl("file:///android_asset/index.html");
     }
 
-    // A link like apnakhata://add?d=... (opened from the web page the WhatsApp link goes to).
-    private void readLink(Intent in, boolean cold) {
+    // A .akhata file opened from WhatsApp / Files ("Open with Apna Khata") or shared to this app.
+    private void readShare(Intent in, boolean cold) {
         if (in == null) return;
-        Uri u = in.getData();
-        if (u != null && "apnakhata".equals(u.getScheme())) {
-            String d = u.getQueryParameter("d");
-            if (d != null && d.length() > 0 && d.length() < 20000) {
-                if (cold) pendingShare = d; else js("onShareLink", d);
+        Uri u = null;
+        String act = in.getAction();
+        if (Intent.ACTION_VIEW.equals(act)) u = in.getData();
+        else if (Intent.ACTION_SEND.equals(act)) u = in.getParcelableExtra(Intent.EXTRA_STREAM);
+        if (u == null) return;
+        try {
+            InputStream is = getContentResolver().openInputStream(u);
+            if (is == null) return;
+            ByteArrayOutputStream bo = new ByteArrayOutputStream();
+            byte[] buf = new byte[4096];
+            int n, total = 0;
+            while ((n = is.read(buf)) > 0) {
+                total += n;
+                if (total > 100000) { is.close(); js("onShareFile", ""); return; }
+                bo.write(buf, 0, n);
             }
-            in.setData(null);
+            is.close();
+            String txt = bo.toString("UTF-8");
+            if (cold) pendingShare = txt; else js("onShareFile", txt);
+        } catch (Exception e) {
+            if (cold) pendingShare = ""; else js("onShareFile", "");
         }
+        in.setData(null);
+        in.setAction(Intent.ACTION_MAIN);
     }
 
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         setIntent(intent);
-        readLink(intent, false);
+        readShare(intent, false);
     }
 
     @Override
@@ -547,6 +568,50 @@ public class MainActivity extends Activity {
             runOnUiThread(() -> {
                 ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
                 if (cm != null) cm.setPrimaryClip(ClipData.newPlainText("Apna Khata", text));
+            });
+        }
+
+
+        @JavascriptInterface
+        public void shareFile(final String text, final String json, final String fileName, final String mode, final String phone) {
+            runOnUiThread(() -> {
+                suppressLock = true;
+                try {
+                    File dir = new File(getCacheDir(), "share");
+                    if (!dir.exists()) dir.mkdirs();
+                    File[] old = dir.listFiles();
+                    if (old != null) for (File o : old) o.delete();
+                    File f = new File(dir, fileName.replaceAll("[^A-Za-z0-9._-]", "_"));
+                    FileOutputStream fo = new FileOutputStream(f);
+                    fo.write(json.getBytes("UTF-8"));
+                    fo.close();
+                    Uri uri = FileProvider.getUriForFile(MainActivity.this, getPackageName() + ".fileprovider", f);
+                    Intent i = new Intent(Intent.ACTION_SEND);
+                    i.setType("application/octet-stream");
+                    i.putExtra(Intent.EXTRA_STREAM, uri);
+                    i.putExtra(Intent.EXTRA_TEXT, text);
+                    i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                    if ("whatsapp".equals(mode)) {
+                        String digits = phone == null ? "" : phone.replaceAll("[^0-9]", "");
+                        if (digits.length() == 11 && digits.startsWith("0")) digits = digits.substring(1);
+                        if (digits.length() == 10) digits = "91" + digits;
+                        if (digits.length() >= 11) i.putExtra("jid", digits + "@s.whatsapp.net");
+                        String[] pk = {"com.whatsapp", "com.whatsapp.w4b"};
+                        for (String pkg : pk) {
+                            try {
+                                i.setPackage(pkg);
+                                startActivity(i);
+                                return;
+                            } catch (ActivityNotFoundException e) { /* try next */ }
+                        }
+                        i.setPackage(null);
+                        i.removeExtra("jid");
+                    }
+                    startActivity(Intent.createChooser(i, "Share khata"));
+                } catch (Exception e) {
+                    suppressLock = false;
+                    js("onShareError", "Could not share the file");
+                }
             });
         }
 
